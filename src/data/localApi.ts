@@ -1,24 +1,33 @@
-import type { Api, AppState, Run } from '../types'
-import { DEFAULT_CATEGORIES } from '../types'
-import { DEMO_RIDERS, DEMO_TIMES } from './demo'
+import type { Api, AppState, Run, Stage } from '../types'
+import { DEFAULT_CATEGORIES, DEFAULT_STAGES } from '../types'
+import { DEMO_RIDERS, DEMO_STAGES, DEMO_STAGE_TIMES } from './demo'
 
-const KEY = 'mtb-cronometro-v2'
+const KEY = 'mtb-cronometro-v3'
 
 function read(): AppState {
   try {
     const raw = localStorage.getItem(KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<AppState>
+      const stages: Stage[] =
+        parsed.stages && parsed.stages.length > 0 ? parsed.stages : [...DEFAULT_STAGES]
+      const categories =
+        parsed.categories && parsed.categories.length > 0 ? parsed.categories : [...DEFAULT_CATEGORIES]
+      const runs = (parsed.runs || []).map((r) => ({
+        ...r,
+        stageId: r.stageId || stages[0]?.id || 'stage-1',
+      }))
       return {
         riders: parsed.riders || [],
-        runs: parsed.runs || [],
-        categories: parsed.categories && parsed.categories.length > 0 ? parsed.categories : [...DEFAULT_CATEGORIES],
+        runs,
+        categories,
+        stages,
       }
     }
   } catch {
     /* ignora dados corrompidos */
   }
-  return { riders: [], runs: [], categories: [...DEFAULT_CATEGORIES] }
+  return { riders: [], runs: [], categories: [...DEFAULT_CATEGORIES], stages: [...DEFAULT_STAGES] }
 }
 
 export function createLocalApi(): Api {
@@ -31,7 +40,8 @@ export function createLocalApi(): Api {
     emit()
   }
 
-  const openRun = (s: AppState, num: string) => s.runs.find((r) => r.num === num && r.status === 'track')
+  const openRun = (s: AppState, num: string, stageId?: string) =>
+    s.runs.find((r) => r.num === num && r.status === 'track' && (!stageId || r.stageId === stageId))
 
   return {
     mode: 'local',
@@ -72,11 +82,50 @@ export function createLocalApi(): Api {
 
     async removeCategory(name: string) {
       const s = read()
-      if (s.riders.some((r) => r.cat === name)) {
-        throw new Error(`Não é possível remover "${name}": existem pilotos vinculados a ela`)
-      }
       s.categories = s.categories.filter((c) => c !== name)
-      if (s.categories.length === 0) s.categories = ['Geral']
+      // Atletas vinculados a esta categoria ficam como 'Sem Categoria'
+      s.riders = s.riders.map((r) => (r.cat === name ? { ...r, cat: 'Sem Categoria' } : r))
+      write(s)
+    },
+
+    async addStage(name: string) {
+      const s = read()
+      const trimmed = name.trim()
+      if (!trimmed) throw new Error('Nome da especial não pode ser vazio')
+      if (s.stages.some((st) => st.name.toLowerCase() === trimmed.toLowerCase())) {
+        throw new Error(`Especial "${trimmed}" já existe`)
+      }
+      const newStage: Stage = {
+        id: `stage-${Date.now()}`,
+        name: trimmed,
+        order: s.stages.length + 1,
+      }
+      s.stages.push(newStage)
+      write(s)
+    },
+
+    async updateStage(id: string, name: string) {
+      const s = read()
+      const stage = s.stages.find((st) => st.id === id)
+      if (!stage) throw new Error('Especial não encontrada')
+      const trimmed = name.trim()
+      if (!trimmed) throw new Error('Nome da especial não pode ser vazio')
+      stage.name = trimmed
+      write(s)
+    },
+
+    async removeStage(id: string) {
+      const s = read()
+      if (s.stages.length <= 1) {
+        throw new Error('A prova precisa de pelo menos uma especial cadastrada')
+      }
+      // Deleta a especial e remove em cascata todas as descidas vinculadas a ela
+      s.stages = s.stages.filter((st) => st.id !== id)
+      s.runs = s.runs.filter((r) => r.stageId !== id)
+      // reordena
+      s.stages.forEach((st, idx) => {
+        st.order = idx + 1
+      })
       write(s)
     },
 
@@ -87,6 +136,23 @@ export function createLocalApi(): Api {
       write(s)
     },
 
+    async updateRider(oldNum, updated) {
+      const s = read()
+      const index = s.riders.findIndex((r) => r.num === oldNum)
+      if (index === -1) throw new Error(`Piloto #${oldNum} não encontrado`)
+
+      if (updated.num !== oldNum && s.riders.some((r) => r.num === updated.num)) {
+        throw new Error(`Número #${updated.num} já está em uso por outro piloto`)
+      }
+
+      s.riders[index] = updated
+      // Atualiza em cascata o número do piloto nas descidas se mudou
+      if (updated.num !== oldNum) {
+        s.runs = s.runs.map((run) => (run.num === oldNum ? { ...run, num: updated.num } : run))
+      }
+      write(s)
+    },
+
     async removeRider(num) {
       const s = read()
       s.riders = s.riders.filter((r) => r.num !== num)
@@ -94,22 +160,45 @@ export function createLocalApi(): Api {
       write(s)
     },
 
-    async startRun(num) {
+    async startRun(num, stageId) {
       const s = read()
       const rider = s.riders.find((r) => r.num === num)
       if (!rider) throw new Error(`Piloto #${num} não cadastrado`)
-      if (openRun(s, num)) throw new Error(`${rider.name} já está na pista`)
-      const run: Run = { id: crypto.randomUUID(), num, start: Date.now(), end: null, status: 'track' }
+      
+      // Bloqueia se o piloto não tiver categoria configurada
+      if (!rider.cat || rider.cat === 'Sem Categoria' || rider.cat.trim() === '') {
+        throw new Error(`Piloto #${rider.num} (${rider.name}) está sem categoria. Configure a categoria em "Pilotos" antes de iniciar a descida.`)
+      }
+
+      const targetStageId = stageId || s.stages[0]?.id || 'stage-1'
+      const stage = s.stages.find((st) => st.id === targetStageId)
+      const stageName = stage ? stage.name : 'Especial'
+
+      if (s.runs.some((r) => r.num === num && r.status === 'track')) {
+        throw new Error(`${rider.name} já está na pista neste momento!`)
+      }
+      if (s.runs.some((r) => r.num === num && r.stageId === targetStageId && r.status === 'done')) {
+        throw new Error(`${rider.name} já concluiu a descida na ${stageName}`)
+      }
+
+      const run: Run = {
+        id: crypto.randomUUID(),
+        num,
+        stageId: targetStageId,
+        start: Date.now(),
+        end: null,
+        status: 'track',
+      }
       s.runs.push(run)
       write(s)
       return run
     },
 
-    async finishRun(num, atEpochMs) {
+    async finishRun(num, atEpochMs, stageId) {
       const s = read()
       const rider = s.riders.find((r) => r.num === num)
       if (!rider) throw new Error(`Piloto #${num} não cadastrado`)
-      const run = openRun(s, num)
+      const run = openRun(s, num, stageId)
       if (!run) throw new Error(`${rider.name} não está na pista`)
       run.end = atEpochMs ?? Date.now()
       run.status = 'done'
@@ -134,21 +223,42 @@ export function createLocalApi(): Api {
 
     async loadDemo() {
       const t = Date.now()
+      const stages = [...DEMO_STAGES]
+      const riders = [...DEMO_RIDERS]
+      const runs: Run[] = []
+
+      // Gera as descidas para as 3 especiais com tempos de Enduro consistentes
+      stages.forEach((stage, stageIdx) => {
+        const stageStartBase = t - (3 - stageIdx) * 1800000 // 30 min entre cada especial
+        riders.forEach((rider, riderIdx) => {
+          const riderTime = DEMO_STAGE_TIMES[rider.num]?.[stage.id] || 170000
+          const start = stageStartBase + riderIdx * 45000
+          runs.push({
+            id: `demo-${stage.id}-${rider.num}`,
+            num: rider.num,
+            stageId: stage.id,
+            start,
+            end: start + riderTime,
+            status: 'done',
+          })
+        })
+      })
+
       write({
-        riders: DEMO_RIDERS,
-        runs: DEMO_RIDERS.map((r, i) => ({
-          id: `demo-${r.num}`,
-          num: r.num,
-          start: t - 600000 + i * 30000,
-          end: t - 600000 + i * 30000 + DEMO_TIMES[r.num],
-          status: 'done' as const,
-        })),
+        riders,
+        runs,
         categories: [...DEFAULT_CATEGORIES],
+        stages,
       })
     },
 
     async reset() {
-      write({ riders: [], runs: [], categories: [...DEFAULT_CATEGORIES] })
+      write({
+        riders: [],
+        runs: [],
+        categories: [...DEFAULT_CATEGORIES],
+        stages: [...DEFAULT_STAGES],
+      })
     },
   }
 }
