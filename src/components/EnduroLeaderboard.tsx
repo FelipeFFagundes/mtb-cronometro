@@ -16,6 +16,8 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Tooltip,
+  Card,
+  Avatar,
 } from '@mui/material'
 import EmojiEventsRoundedIcon from '@mui/icons-material/EmojiEventsRounded'
 import FilterListRoundedIcon from '@mui/icons-material/FilterListRounded'
@@ -115,11 +117,283 @@ export function EnduroLeaderboard({
         </Box>
       </Box>
 
-      {/* TABELA DE CLASSIFICAÇÃO RESPONSIVA */}
+      {/* VISÃO EM CARDS PARA DISPOSITIVOS MÓVEIS (XS/SM) - ZERO SCROLL LATERAL */}
+      <Box sx={{ display: { xs: 'flex', md: 'none' }, flexDirection: 'column', gap: 1.5 }}>
+        {rows.length === 0 && (
+          <Card sx={{ p: 4, textAlign: 'center', bgcolor: 'background.paper' }}>
+            <Typography variant="body2" color="text.secondary">
+              Nenhum atleta registrado nesta categoria
+            </Typography>
+          </Card>
+        )}
+
+        {rows.map((row, i) => {
+          const isFirst = i === 0
+          const isSecond = i === 1
+          const isThird = i === 2
+
+          const posDisplay = isFirst ? '🥇 1º Lugar' : isSecond ? '🥈 2º Lugar' : isThird ? '🥉 3º Lugar' : `${i + 1}º Lugar`
+          const cardBorder = isFirst
+            ? '2px solid rgba(245, 158, 11, 0.4)'
+            : isSecond
+            ? '1px solid rgba(203, 213, 225, 0.3)'
+            : isThird
+            ? '1px solid rgba(180, 83, 9, 0.3)'
+            : '1px solid rgba(255, 255, 255, 0.08)'
+
+          const cardBg = isFirst
+            ? 'rgba(245, 158, 11, 0.04)'
+            : isSecond
+            ? 'rgba(203, 213, 225, 0.02)'
+            : isThird
+            ? 'rgba(180, 83, 9, 0.02)'
+            : 'background.paper'
+
+          if (isOverall) {
+            const hasTime = row.completedCount > 0 && !row.hasDnf
+            return (
+              <Card
+                key={row.rider.num}
+                sx={{
+                  bgcolor: cardBg,
+                  border: cardBorder,
+                  borderRadius: 2.5,
+                  p: 2,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 1.5,
+                }}
+              >
+                {/* TOPO DO CARD: POSIÇÃO, NOME, NÚMERO E CATEGORIA */}
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography
+                        variant="subtitle2"
+                        sx={{
+                          fontWeight: 900,
+                          color: isFirst ? '#f59e0b' : isSecond ? '#cbd5e1' : isThird ? '#d97706' : 'text.secondary',
+                        }}
+                      >
+                        {posDisplay}
+                      </Typography>
+                      <Chip label={row.rider.cat} size="small" sx={{ fontSize: '0.68rem', height: 18 }} />
+                    </Box>
+                    <Typography variant="body1" sx={{ fontWeight: 800, mt: 0.3, fontSize: '1.05rem' }}>
+                      {row.rider.name}
+                    </Typography>
+                  </Box>
+                  <Avatar
+                    sx={{
+                      width: 34,
+                      height: 34,
+                      fontSize: '0.85rem',
+                      fontWeight: 800,
+                      bgcolor: 'rgba(56, 189, 248, 0.12)',
+                      color: 'primary.main',
+                      border: '1px solid rgba(56, 189, 248, 0.3)',
+                    }}
+                  >
+                    #{row.rider.num}
+                  </Avatar>
+                </Box>
+
+                {/* TEMPO TOTAL E DIFERENÇA GERAL */}
+                <Box
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    bgcolor: 'background.default',
+                    px: 1.5,
+                    py: 1,
+                    borderRadius: 2,
+                    border: '1px solid rgba(255, 255, 255, 0.04)',
+                  }}
+                >
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.68rem' }}>
+                      TEMPO TOTAL ({row.completedCount}/{stages.length} esp.)
+                    </Typography>
+                    {row.hasDnf ? (
+                      <Chip label="DNF GERAL" size="small" color="error" sx={{ fontWeight: 800, mt: 0.2 }} />
+                    ) : hasTime ? (
+                      <Typography
+                        variant="h6"
+                        sx={{
+                          fontFamily: 'monospace',
+                          fontWeight: 900,
+                          color: isFirst ? '#4ade80' : 'text.primary',
+                          lineHeight: 1.2,
+                        }}
+                      >
+                        {fmt(row.totalTime)}
+                      </Typography>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Pendente
+                      </Typography>
+                    )}
+                  </Box>
+
+                  <Box sx={{ textAlign: 'right' }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.68rem' }}>
+                      GAP LÍDER
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        fontFamily: 'monospace',
+                        fontWeight: 700,
+                        color: isFirst ? 'text.secondary' : 'warning.main',
+                      }}
+                    >
+                      {isFirst || !hasTime ? '—' : `+${fmt(row.totalGap)}`}
+                    </Typography>
+                  </Box>
+                </Box>
+
+                {/* PARCIAIS DE TODAS AS ESPECIAIS EM GRID RESPONSIVO (2 POR LINHA) */}
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 1 }}>
+                  {stages.map((st) => {
+                    const perf = row.stagePerformances[st.id]
+                    return (
+                      <Box
+                        key={st.id}
+                        sx={{
+                          p: 1,
+                          bgcolor: 'rgba(255, 255, 255, 0.02)',
+                          borderRadius: 1.5,
+                          border: '1px solid rgba(255, 255, 255, 0.05)',
+                        }}
+                      >
+                        <Typography
+                          variant="caption"
+                          noWrap
+                          sx={{ display: 'block', color: 'text.secondary', fontWeight: 600, fontSize: '0.68rem' }}
+                          title={st.name}
+                        >
+                          {st.name}
+                        </Typography>
+                        {perf?.status === 'done' && perf.time != null ? (
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 0.3 }}>
+                            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '0.88rem' }}>
+                              {fmt(perf.time)}
+                            </Typography>
+                            {perf.stageRank && (
+                              <Typography variant="caption" sx={{ color: perf.stageRank === 1 ? '#f59e0b' : 'text.secondary', fontSize: '0.68rem', fontWeight: 700 }}>
+                                {perf.stageRank}º
+                              </Typography>
+                            )}
+                          </Box>
+                        ) : perf?.status === 'dnf' ? (
+                          <Chip label="DNF" size="small" color="error" sx={{ height: 18, fontSize: '0.65rem', mt: 0.3 }} />
+                        ) : perf?.status === 'track' ? (
+                          <Chip label="Na pista" size="small" color="warning" sx={{ height: 18, fontSize: '0.65rem', mt: 0.3 }} />
+                        ) : (
+                          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.3, display: 'block' }}>
+                            —
+                          </Typography>
+                        )}
+                      </Box>
+                    )
+                  })}
+                </Box>
+              </Card>
+            )
+          } else {
+            // Visualização móvel em Especial isolada
+            const perf = row.stagePerformances[selectedStageId]
+            const isDone = perf?.status === 'done' && perf.time != null
+            return (
+              <Card
+                key={row.rider.num}
+                sx={{
+                  bgcolor: cardBg,
+                  border: cardBorder,
+                  borderRadius: 2.5,
+                  p: 2,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <Avatar
+                    sx={{
+                      width: 36,
+                      height: 36,
+                      fontSize: '0.85rem',
+                      fontWeight: 800,
+                      bgcolor: isFirst ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.08)',
+                      color: isFirst ? '#f59e0b' : 'primary.main',
+                    }}
+                  >
+                    #{row.rider.num}
+                  </Avatar>
+                  <Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          fontWeight: 800,
+                          color: isFirst ? '#f59e0b' : isSecond ? '#cbd5e1' : isThird ? '#d97706' : 'text.secondary',
+                        }}
+                      >
+                        {posDisplay}
+                      </Typography>
+                      <Chip label={row.rider.cat} size="small" sx={{ fontSize: '0.68rem', height: 18 }} />
+                    </Box>
+                    <Typography variant="body1" sx={{ fontWeight: 800 }}>
+                      {row.rider.name}
+                    </Typography>
+                  </Box>
+                </Box>
+
+                <Box sx={{ textAlign: 'right' }}>
+                  {isDone ? (
+                    <>
+                      <Typography
+                        variant="body1"
+                        sx={{
+                          fontFamily: 'monospace',
+                          fontWeight: 900,
+                          fontSize: '1.1rem',
+                          color: isFirst ? '#4ade80' : 'text.primary',
+                        }}
+                      >
+                        {fmt(perf.time!)}
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          fontFamily: 'monospace',
+                          fontWeight: 700,
+                          color: isFirst ? 'text.secondary' : 'warning.main',
+                          display: 'block',
+                        }}
+                      >
+                        {isFirst || perf.stageGap == null ? 'Líder' : `+${fmt(perf.stageGap)}`}
+                      </Typography>
+                    </>
+                  ) : perf?.status === 'dnf' ? (
+                    <Chip label="DNF" size="small" color="error" sx={{ height: 20, fontSize: '0.7rem' }} />
+                  ) : (
+                    <Typography variant="caption" color="text.secondary">—</Typography>
+                  )}
+                </Box>
+              </Card>
+            )
+          }
+        })}
+      </Box>
+
+      {/* TABELA DE CLASSIFICAÇÃO PARA DESKTOP/TABLET (MD+) */}
       <TableContainer
         component={Paper}
         square
         sx={{
+          display: { xs: 'none', md: 'block' },
           borderRadius: 0,
           border: '1px solid rgba(255, 255, 255, 0.1)',
           overflowX: 'auto',

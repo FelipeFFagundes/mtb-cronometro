@@ -177,8 +177,8 @@ export function createLocalApi(): Api {
       if (s.runs.some((r) => r.num === num && r.status === 'track')) {
         throw new Error(`${rider.name} já está na pista neste momento!`)
       }
-      if (s.runs.some((r) => r.num === num && r.stageId === targetStageId && r.status === 'done')) {
-        throw new Error(`${rider.name} já concluiu a descida na ${stageName}`)
+      if (s.runs.some((r) => r.num === num && r.stageId === targetStageId && (r.status === 'done' || r.status === 'dnf'))) {
+        throw new Error(`${rider.name} já possui descida registrada na ${stageName}`)
       }
 
       const run: Run = {
@@ -211,7 +211,7 @@ export function createLocalApi(): Api {
       const run = s.runs.find((r) => r.id === id)
       if (!run) return
       run.status = 'dnf'
-      run.end = Date.now()
+      if (!run.end) run.end = Date.now()
       write(s)
     },
 

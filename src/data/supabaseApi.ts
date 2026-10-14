@@ -124,9 +124,9 @@ function project(server: AppState, ops: Op[]): AppState {
         run.status = 'done'
       }
     } else if (op.kind === 'dnf') {
-      const run = runs.find((r) => r.id === op.runId && r.status === 'track')
+      const run = runs.find((r) => r.id === op.runId)
       if (run) {
-        run.end = Math.max(op.at, run.start)
+        run.end = run.end ?? Math.max(op.at, run.start)
         run.status = 'dnf'
       }
     } else if (op.kind === 'undo') {
@@ -242,7 +242,10 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     const at = new Date(op.at).toISOString()
     if (op.kind === 'start') return sb.rpc('start_run', { p_num: op.num, p_at: at, p_id: op.id })
     if (op.kind === 'finish') return sb.rpc('finish_run', { p_num: op.num, p_at: at })
-    if (op.kind === 'dnf') return sb.rpc('dnf_run', { p_id: op.runId, p_at: at })
+    if (op.kind === 'dnf') {
+      const res = await sb.from('runs').update({ status: 'dnf' }).eq('id', op.runId!)
+      return { error: res.error, status: res.status }
+    }
     return sb.from('runs').delete().eq('id', op.runId!)
   }
 
@@ -491,8 +494,8 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       if (st.runs.some((r) => r.num === num && r.status === 'track')) {
         throw new Error(`${rider.name} já está na pista neste momento!`)
       }
-      if (st.runs.some((r) => r.num === num && r.stageId === targetStageId && r.status === 'done')) {
-        throw new Error(`${rider.name} já concluiu a descida na ${stageName}`)
+      if (st.runs.some((r) => r.num === num && r.stageId === targetStageId && (r.status === 'done' || r.status === 'dnf'))) {
+        throw new Error(`${rider.name} já possui descida registrada na ${stageName}`)
       }
 
       const id = crypto.randomUUID()
@@ -533,8 +536,8 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
 
     async dnfRun(id) {
       const run = view().runs.find((r) => r.id === id)
-      if (!run || run.status !== 'track') return
-      enqueue({ id: crypto.randomUUID(), kind: 'dnf', runId: id, at: nowSrv(), label: `DNF · ${who(run.num)}` })
+      if (!run) return
+      enqueue({ id: crypto.randomUUID(), kind: 'dnf', runId: id, at: nowSrv(), label: `DNF/DSQ · ${who(run.num)}` })
     },
 
     async undoRun(id) {

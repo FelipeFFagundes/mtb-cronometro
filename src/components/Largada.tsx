@@ -50,9 +50,10 @@ export function Largada({ state, act, online }: Props) {
   const value = num.trim()
   const rider = state.riders.find((r) => r.num === value)
   const onTrack = state.runs.some((r) => r.num === value && r.status === 'track')
-  const alreadyDoneThisStage = state.runs.some(
-    (r) => r.num === value && (r.stageId || stages[0]?.id) === currentStage.id && r.status === 'done'
+  const runThisStage = state.runs.find(
+    (r) => r.num === value && (r.stageId || stages[0]?.id) === currentStage.id && r.status !== 'track'
   )
+  const alreadyRanThisStage = Boolean(runThisStage)
 
   let previewMsg = `Digite o número ou selecione um piloto para a ${currentStage.name}`
   let previewSeverity: 'info' | 'success' | 'error' | 'warning' = 'info'
@@ -66,8 +67,8 @@ export function Largada({ state, act, online }: Props) {
     } else if (onTrack) {
       previewMsg = `${rider.name} já está na pista!`
       previewSeverity = 'error'
-    } else if (alreadyDoneThisStage) {
-      previewMsg = `Atenção: ${rider.name} já completou a ${currentStage.name}`
+    } else if (alreadyRanThisStage) {
+      previewMsg = `Atenção: ${rider.name} já possui descida (${runThisStage?.status === 'dnf' ? 'DNF' : 'concluída'}) na ${currentStage.name}`
       previewSeverity = 'warning'
     } else {
       previewMsg = `${rider.name} · ${rider.cat}`
@@ -116,6 +117,9 @@ export function Largada({ state, act, online }: Props) {
     if (state.runs.some((run) => run.num === r.num && run.status === 'track')) {
       return act(async () => { throw new Error(`${r.name} já está na pista`) })
     }
+    if (state.runs.some((run) => run.num === r.num && (run.stageId || stages[0]?.id) === currentStage.id && run.status !== 'track')) {
+      return act(async () => { throw new Error(`${r.name} já possui descida registrada na ${currentStage.name}`) })
+    }
     setNum('')
     setCountdownRider(r)
   }
@@ -129,6 +133,9 @@ export function Largada({ state, act, online }: Props) {
       })
     }
     if (onTrack) return act(async () => { throw new Error(`${rider.name} já está na pista`) })
+    if (alreadyRanThisStage) {
+      return act(async () => { throw new Error(`${rider.name} já possui descida registrada na ${currentStage.name}`) })
+    }
     startCountdown(rider)
   }
 
@@ -137,7 +144,7 @@ export function Largada({ state, act, online }: Props) {
     .filter((r) => {
       const isCurrentlyOnTrack = state.runs.some((run) => run.num === r.num && run.status === 'track')
       const hasFinishedThisStage = state.runs.some(
-        (run) => run.num === r.num && (run.stageId || stages[0]?.id) === currentStage.id && run.status === 'done'
+        (run) => run.num === r.num && (run.stageId || stages[0]?.id) === currentStage.id && run.status !== 'track'
       )
       return !isCurrentlyOnTrack && !hasFinishedThisStage
     })
