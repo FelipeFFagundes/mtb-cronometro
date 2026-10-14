@@ -28,7 +28,18 @@ body {
   background: #0b1118;
   border-bottom: 1px solid var(--panel-2);
 }
-.brand { font-size: 18px; }
+.brand {
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.brand-logo {
+  height: 28px;
+  width: auto;
+  object-fit: contain;
+  display: block;
+}
 .sync { font-size: 12px; color: var(--green); }
 .sync.flash { color: var(--amber); }
 
@@ -174,3 +185,134 @@ table.rank td.empty { text-align: center; color: var(--muted); padding: 24px; }
 .sync-banner li { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: rgba(0,0,0,.25); border-radius: 8px; padding: 6px 10px; }
 .sync-banner em { opacity: .8; }
 .mini:disabled { opacity: .5; }
+
+/* Grid de Pilotos na Largada */
+.riders-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.rider-chip-card {
+  background: var(--panel);
+  border: 2px solid var(--panel-2);
+  border-radius: 12px;
+  padding: 12px 10px;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.rider-chip-card:hover {
+  border-color: var(--blue);
+  background: #1b2836;
+}
+.rider-chip-card.selected {
+  border-color: var(--green);
+  background: rgba(34, 197, 94, 0.15);
+}
+.rider-chip-card .rc-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.rider-chip-card .rc-num {
+  font-weight: 800;
+  font-size: 18px;
+  color: var(--amber);
+}
+.rider-chip-card .rc-cat {
+  font-size: 11px;
+  background: var(--panel-2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--muted);
+}
+.rider-chip-card .rc-name {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Contagem Regressiva em Tela Cheia */
+.countdown-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(11, 17, 24, 0.96);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+  backdrop-filter: blur(8px);
+}
+.countdown-rider {
+  text-align: center;
+  margin-bottom: 24px;
+}
+.countdown-rider .c-num {
+  display: block;
+  font-size: 44px;
+  font-weight: 900;
+  color: var(--amber);
+}
+.countdown-rider .c-name {
+  display: block;
+  font-size: 26px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+.countdown-rider .c-cat {
+  display: inline-block;
+  font-size: 14px;
+  background: var(--panel-2);
+  color: var(--muted);
+  padding: 4px 12px;
+  border-radius: 999px;
+  margin-top: 8px;
+}
+.countdown-number {
+  font-size: 140px;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--amber);
+  margin: 20px 0 40px;
+  animation: popNumber 0.9s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+.countdown-number.go {
+  color: var(--green);
+  font-size: 110px;
+}
+.c-cancel {
+  max-width: 260px;
+}
+
+@keyframes popNumber {
+  0% { transform: scale(0.4); opacity: 0; }
+  60% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Modal de Confirmação de Chegada */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  backdrop-filter: blur(4px);
+}
+.confirm-modal {
+  width: 100%;
+  max-width: 420px;
+  border: 2px solid var(--panel-2);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  text-align: center;
+}

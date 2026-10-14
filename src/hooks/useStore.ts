@@ -3,7 +3,7 @@ import { api } from '../data'
 import type { AppState, PendingOp, SyncStatus } from '../types'
 
 export function useStore() {
-  const [state, setState] = useState<AppState>({ riders: [], runs: [] })
+  const [state, setState] = useState<AppState>({ riders: [], runs: [], categories: [] })
   const [sync, setSync] = useState<SyncStatus>(() => api.getSync())
   const [pending, setPending] = useState<PendingOp[]>(() => api.getPending())
   const [loading, setLoading] = useState(true)

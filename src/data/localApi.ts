@@ -1,4 +1,5 @@
 import type { Api, AppState, Run } from '../types'
+import { DEFAULT_CATEGORIES } from '../types'
 import { DEMO_RIDERS, DEMO_TIMES } from './demo'
 
 const KEY = 'mtb-cronometro-v2'
@@ -6,11 +7,18 @@ const KEY = 'mtb-cronometro-v2'
 function read(): AppState {
   try {
     const raw = localStorage.getItem(KEY)
-    if (raw) return JSON.parse(raw) as AppState
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<AppState>
+      return {
+        riders: parsed.riders || [],
+        runs: parsed.runs || [],
+        categories: parsed.categories && parsed.categories.length > 0 ? parsed.categories : [...DEFAULT_CATEGORIES],
+      }
+    }
   } catch {
     /* ignora dados corrompidos */
   }
-  return { riders: [], runs: [] }
+  return { riders: [], runs: [], categories: [...DEFAULT_CATEGORIES] }
 }
 
 export function createLocalApi(): Api {
@@ -52,6 +60,25 @@ export function createLocalApi(): Api {
     async syncNow() {},
     discardPending() {},
     onNotice: () => () => {},
+
+    async addCategory(name: string) {
+      const s = read()
+      const trimmed = name.trim()
+      if (!trimmed) throw new Error('Nome da categoria não pode ser vazio')
+      if (s.categories.includes(trimmed)) throw new Error(`Categoria "${trimmed}" já existe`)
+      s.categories.push(trimmed)
+      write(s)
+    },
+
+    async removeCategory(name: string) {
+      const s = read()
+      if (s.riders.some((r) => r.cat === name)) {
+        throw new Error(`Não é possível remover "${name}": existem pilotos vinculados a ela`)
+      }
+      s.categories = s.categories.filter((c) => c !== name)
+      if (s.categories.length === 0) s.categories = ['Geral']
+      write(s)
+    },
 
     async addRider(rider) {
       const s = read()
@@ -116,11 +143,12 @@ export function createLocalApi(): Api {
           end: t - 600000 + i * 30000 + DEMO_TIMES[r.num],
           status: 'done' as const,
         })),
+        categories: [...DEFAULT_CATEGORIES],
       })
     },
 
     async reset() {
-      write({ riders: [], runs: [] })
+      write({ riders: [], runs: [], categories: [...DEFAULT_CATEGORIES] })
     },
   }
 }

@@ -71,7 +71,10 @@ export default function App() {
   return (
     <>
       <header className="topbar">
-        <div className="brand">🚵 <strong>MTB</strong> Cronômetro</div>
+        <div className="brand">
+          <img src="/logo.png" alt="SPET Logo" className="brand-logo" />
+          <span><strong>MTB</strong> Cronômetro</span>
+        </div>
         <div className={chipClass}>{chip}</div>
       </header>
 
