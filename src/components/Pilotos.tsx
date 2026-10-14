@@ -16,6 +16,8 @@ export function Pilotos({ state, act }: Props) {
 
   // Estado para piloto em edição (modal ou formulário de edição)
   const [editingRider, setEditingRider] = useState<{ originalNum: string; num: string; name: string; cat: string } | null>(null)
+  // Estado para confirmação de remoção de piloto
+  const [deletingRider, setDeletingRider] = useState<Rider | null>(null)
 
   const categories = state.categories && state.categories.length > 0 ? state.categories : ['Geral']
   const [cat, setCat] = useState<string>(categories[0] || 'Geral')
@@ -55,6 +57,13 @@ export function Pilotos({ state, act }: Props) {
     if (ok) {
       setEditingRider(null)
     }
+  }
+
+  const confirmRemoveRider = async () => {
+    if (!deletingRider) return
+    const target = deletingRider
+    setDeletingRider(null)
+    await act(() => api.removeRider(target.num), `Piloto #${target.num} (${target.name}) removido`)
   }
 
   const submitCategory = async (e: FormEvent) => {
@@ -151,6 +160,42 @@ export function Pilotos({ state, act }: Props) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE CONFIRMAÇÃO DE EXCLUSÃO DE PILOTO */}
+      {deletingRider && (
+        <div className="confirm-overlay">
+          <div className="confirm-modal card" style={{ borderColor: 'var(--red)', maxWidth: 400 }}>
+            <div style={{ fontSize: 36, marginBottom: 4 }}>🗑️</div>
+            <h3 style={{ margin: '0 0 6px', color: 'var(--red)', fontSize: 20 }}>Excluir Atleta?</h3>
+            <p style={{ margin: '0 0 16px', fontSize: 15 }}>
+              Tem certeza que deseja excluir <strong>#{deletingRider.num} - {deletingRider.name}</strong> ({deletingRider.cat})?
+              <br />
+              <small style={{ color: 'var(--muted)', display: 'block', marginTop: 4 }}>
+                Todas as descidas e tempos deste piloto também serão apagados.
+              </small>
+            </p>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ flex: 1, marginTop: 0 }}
+                onClick={() => setDeletingRider(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn btn-finish"
+                style={{ flex: 1.2, padding: 14, fontSize: 16, background: 'var(--red)' }}
+                onClick={() => void confirmRemoveRider()}
+              >
+                SIM, EXCLUIR
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -274,7 +319,7 @@ export function Pilotos({ state, act }: Props) {
               <button 
                 type="button" 
                 className="mini danger" 
-                onClick={() => void act(() => api.removeRider(r.num))}
+                onClick={() => setDeletingRider(r)}
               >
                 Remover
               </button>
