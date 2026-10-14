@@ -11,9 +11,17 @@ interface Props {
   online: boolean
 }
 
+interface ConfirmTarget {
+  num: string
+  name: string
+  /** Carimbo do instante em que o fiscal apertou o botão */
+  capturedAt: number
+  startAt: number | null
+}
+
 export function Chegada({ state, act, online }: Props) {
   const [num, setNum] = useState('')
-  const [confirmTarget, setConfirmTarget] = useState<{ num: string; name: string } | null>(null)
+  const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget | null>(null)
 
   const value = num.trim()
   const rider = state.riders.find((r) => r.num === value)
@@ -28,18 +36,29 @@ export function Chegada({ state, act, online }: Props) {
     else { preview = `${rider.name} · ${rider.cat}`; cls = 'preview ok' }
   }
 
-  // Registra a chegada de fato após confirmação
-  const executeFinish = async (n: string) => {
-    const targetName = state.riders.find((r) => r.num === n)?.name ?? '#' + n
+  // Registra a chegada de fato usando o tempo capturado no 1º clique
+  const executeFinish = async (target: ConfirmTarget) => {
+    const targetName = target.name
     setConfirmTarget(null)
     setNum('')
-    return act(() => api.finishRun(n).then(() => undefined), `🏁 ${targetName} chegou!` + (online ? '' : ' (salvo offline)'))
+    return act(
+      () => api.finishRun(target.num, target.capturedAt).then(() => undefined),
+      `🏁 ${targetName} chegou! ` + (target.startAt ? `(${fmt(target.capturedAt - target.startAt)})` : '') + (online ? '' : ' (salvo offline)')
+    )
   }
 
-  // Pede confirmação antes de bater o tempo
+  // Captura o instante do clique e pede confirmação
   const requestFinish = (n: string) => {
     const rName = state.riders.find((r) => r.num === n)?.name ?? `Piloto #${n}`
-    setConfirmTarget({ num: n, name: rName })
+    const run = state.runs.find((r) => r.num === n && r.status === 'track')
+    // Captura o momento exato do clique com relógio sincronizado
+    const capturedAt = Date.now() + api.getClockOffset()
+    setConfirmTarget({
+      num: n,
+      name: rName,
+      capturedAt,
+      startAt: run ? run.start : null,
+    })
   }
 
   const submit = () => {
@@ -54,15 +73,29 @@ export function Chegada({ state, act, online }: Props) {
     <section>
       <h2>Chegada</h2>
 
-      {/* MODAL DE CONFIRMAÇÃO DE CHEGADA ANTI-ERRO */}
+      {/* MODAL DE CONFIRMAÇÃO COM TEMPO CONGELADO VS TEMPO ROLANDO */}
       {confirmTarget && (
         <div className="confirm-overlay">
           <div className="confirm-modal card">
-            <div style={{ fontSize: 32, marginBottom: 8 }}>🏁</div>
-            <h3 style={{ margin: '0 0 8px', color: 'var(--text)', fontSize: 20 }}>Confirmar Chegada?</h3>
-            <p style={{ margin: '0 0 20px', fontSize: 16 }}>
-              Registrar chegada do piloto <strong>#{confirmTarget.num} - {confirmTarget.name}</strong>?
+            <div style={{ fontSize: 32, marginBottom: 4 }}>⏱️</div>
+            <h3 style={{ margin: '0 0 6px', color: 'var(--text)', fontSize: 20 }}>Confirmar Chegada?</h3>
+            <p style={{ margin: '0 0 14px', fontSize: 16 }}>
+              Piloto <strong>#{confirmTarget.num} - {confirmTarget.name}</strong>
             </p>
+
+            {/* Caixa com o tempo congelado */}
+            <div className="captured-time-box">
+              <span className="captured-label">Tempo capturado no clique:</span>
+              <span className="captured-value">
+                {confirmTarget.startAt ? fmt(confirmTarget.capturedAt - confirmTarget.startAt) : clock(confirmTarget.capturedAt)}
+              </span>
+              {confirmTarget.startAt && (
+                <div className="still-running-indicator">
+                  Se cancelar, o cronômetro continua: <LiveTimer start={confirmTarget.startAt} />
+                </div>
+              )}
+            </div>
+
             <div style={{ display: 'flex', gap: 10 }}>
               <button 
                 type="button" 
@@ -70,15 +103,15 @@ export function Chegada({ state, act, online }: Props) {
                 style={{ flex: 1, marginTop: 0 }}
                 onClick={() => setConfirmTarget(null)}
               >
-                Voltar
+                Cancelar (Segue na Pista)
               </button>
               <button 
                 type="button" 
                 className="btn btn-finish" 
-                style={{ flex: 1.5, padding: 14, fontSize: 18 }}
-                onClick={() => void executeFinish(confirmTarget.num)}
+                style={{ flex: 1.3, padding: 14, fontSize: 17 }}
+                onClick={() => void executeFinish(confirmTarget)}
               >
-                SIM, CHEGOU!
+                CONFIRMAR TEMPO
               </button>
             </div>
           </div>

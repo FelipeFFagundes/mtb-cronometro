@@ -316,3 +316,32 @@ table.rank td.empty { text-align: center; color: var(--muted); padding: 24px; }
   box-shadow: 0 10px 30px rgba(0,0,0,0.5);
   text-align: center;
 }
+
+/* Caixa de tempo capturado no clique da chegada */
+.captured-time-box {
+  background: var(--bg);
+  border: 2px solid var(--panel-2);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 18px;
+  text-align: center;
+}
+.captured-label {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.captured-value {
+  display: block;
+  font-size: 32px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--amber);
+}
+.still-running-indicator {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}

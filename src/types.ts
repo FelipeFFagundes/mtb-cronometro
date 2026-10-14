@@ -69,7 +69,7 @@ export interface Api {
   addRider(rider: Rider): Promise<void>
   removeRider(num: string): Promise<void>
   startRun(num: string): Promise<Run | null>
-  finishRun(num: string): Promise<Run | null>
+  finishRun(num: string, atEpochMs?: number): Promise<Run | null>
   dnfRun(id: string): Promise<void>
   undoRun(id: string): Promise<void>
   loadDemo(): Promise<void>

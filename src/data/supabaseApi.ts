@@ -417,7 +417,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       return view().runs.find((r) => r.id === id) ?? null
     },
 
-    async finishRun(num) {
+    async finishRun(num, atEpochMs) {
       const st = view()
       const rider = st.riders.find((r) => r.num === num)
       if (!rider) throw new Error(`Piloto #${num} não cadastrado`)
@@ -431,7 +431,8 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
         }
         notice(`Sem conexão: chegada de ${rider.name} guardada e será validada ao sincronizar.`)
       }
-      enqueue({ id: crypto.randomUUID(), kind: 'finish', num, at: nowSrv(), label: `Chegada · ${who(num)}` })
+      const finishTime = atEpochMs ?? nowSrv()
+      enqueue({ id: crypto.randomUUID(), kind: 'finish', num, at: finishTime, label: `Chegada · ${who(num)}` })
       return open ? (view().runs.find((r) => r.id === open.id) ?? null) : null
     },
 

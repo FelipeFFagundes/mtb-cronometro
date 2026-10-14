@@ -105,13 +105,13 @@ export function createLocalApi(): Api {
       return run
     },
 
-    async finishRun(num) {
+    async finishRun(num, atEpochMs) {
       const s = read()
       const rider = s.riders.find((r) => r.num === num)
       if (!rider) throw new Error(`Piloto #${num} não cadastrado`)
       const run = openRun(s, num)
       if (!run) throw new Error(`${rider.name} não está na pista`)
-      run.end = Date.now()
+      run.end = atEpochMs ?? Date.now()
       run.status = 'done'
       write(s)
       return run
