@@ -1,22 +1,32 @@
 import type { Rider } from '../types'
 
+/**
+ * Pilotos reais de demonstração baseados no Top mundial da Copa do Mundo UCI DHI (Downhill):
+ * - Top 5 Masculino Elite: Loïc Bruni, Troy Brosnan, Amaury Pierron, Ronan Dunne, Finn Iles
+ * - Top 3 Feminino Elite: Valentina Höll, Lisa Baumann, Harriet Harnden
+ */
 export const DEMO_RIDERS: Rider[] = [
-  { num: '101', name: 'Lucas Silva', cat: 'Elite' },
-  { num: '102', name: 'Marcos Pereira', cat: 'Elite' },
-  { num: '103', name: 'Rafael Costa', cat: 'Master' },
-  { num: '104', name: 'Bruno Alves', cat: 'Sport' },
-  { num: '105', name: 'Ana Souza', cat: 'Feminino' },
-  { num: '106', name: 'Julia Lima', cat: 'Feminino' },
-  { num: '107', name: 'Pedro Rocha', cat: 'Iniciante' },
+  // Top 5 Elite Masculino
+  { num: '1', name: 'Loïc Bruni', cat: 'Elite' },
+  { num: '2', name: 'Troy Brosnan', cat: 'Elite' },
+  { num: '3', name: 'Amaury Pierron', cat: 'Elite' },
+  { num: '4', name: 'Ronan Dunne', cat: 'Elite' },
+  { num: '5', name: 'Finn Iles', cat: 'Elite' },
+
+  // Top Elite Feminino
+  { num: '11', name: 'Valentina Höll', cat: 'Feminino' },
+  { num: '12', name: 'Lisa Baumann', cat: 'Feminino' },
+  { num: '13', name: 'Harriet Harnden', cat: 'Feminino' },
 ]
 
-/** Tempo de descida (ms) de cada piloto de exemplo. */
+/** Tempos de descida (ms) de exemplo para cada atleta */
 export const DEMO_TIMES: Record<string, number> = {
-  '101': 165555,
-  '102': 168210,
-  '103': 172900,
-  '104': 181430,
-  '105': 190120,
-  '106': 195800,
-  '107': 214300,
+  '1': 163240, // 02:43.24 - Loïc Bruni (1º)
+  '2': 164110, // 02:44.11 - Troy Brosnan (+0.87s)
+  '3': 164590, // 02:44.59 - Amaury Pierron (+1.35s)
+  '4': 165820, // 02:45.82 - Ronan Dunne (+2.58s)
+  '5': 166430, // 02:46.43 - Finn Iles (+3.19s)
+  '11': 182450, // 03:02.45 - Valentina Höll
+  '12': 184910, // 03:04.91 - Lisa Baumann
+  '13': 186300, // 03:06.30 - Harriet Harnden
 }
