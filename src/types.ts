@@ -1,5 +1,17 @@
 export const DEFAULT_CATEGORIES = ['Elite', 'Master', 'Sport', 'Feminino', 'Iniciante']
 
+export interface Stage {
+  id: string
+  name: string
+  order: number
+}
+
+export const DEFAULT_STAGES: Stage[] = [
+  { id: 'stage-1', name: 'Especial 1', order: 1 },
+  { id: 'stage-2', name: 'Especial 2', order: 2 },
+  { id: 'stage-3', name: 'Especial 3', order: 3 },
+]
+
 export type RunStatus = 'track' | 'done' | 'dnf'
 
 export interface Rider {
@@ -8,10 +20,11 @@ export interface Rider {
   cat: string
 }
 
-/** Uma descida. `start`/`end` são epoch em ms (horário do servidor no modo Supabase). */
+/** Uma descida em uma especial/trilha. `start`/`end` são epoch em ms (horário do servidor no modo Supabase). */
 export interface Run {
   id: string
   num: string
+  stageId?: string
   start: number
   end: number | null
   status: RunStatus
@@ -21,6 +34,7 @@ export interface AppState {
   riders: Rider[]
   runs: Run[]
   categories: string[]
+  stages: Stage[]
 }
 
 export interface SyncStatus {
@@ -66,14 +80,15 @@ export interface Api {
   onNotice(cb: (msg: string, isError: boolean) => void): () => void
   addCategory(name: string): Promise<void>
   removeCategory(name: string): Promise<void>
+  addStage(name: string): Promise<void>
+  removeStage(id: string): Promise<void>
   addRider(rider: Rider): Promise<void>
   updateRider(oldNum: string, updated: Rider): Promise<void>
   removeRider(num: string): Promise<void>
-  startRun(num: string): Promise<Run | null>
-  finishRun(num: string, atEpochMs?: number): Promise<Run | null>
+  startRun(num: string, stageId?: string): Promise<Run | null>
+  finishRun(num: string, atEpochMs?: number, stageId?: string): Promise<Run | null>
   dnfRun(id: string): Promise<void>
   undoRun(id: string): Promise<void>
   loadDemo(): Promise<void>
   reset(): Promise<void>
 }
-

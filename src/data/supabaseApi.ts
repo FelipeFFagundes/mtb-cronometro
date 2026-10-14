@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
-import type { Api, AppState, PendingOp, Run, RunStatus, SyncStatus } from '../types'
-import { DEFAULT_CATEGORIES } from '../types'
-import { DEMO_RIDERS, DEMO_TIMES } from './demo'
+import type { Api, AppState, PendingOp, Run, RunStatus, SyncStatus, Stage } from '../types'
+import { DEFAULT_CATEGORIES, DEFAULT_STAGES } from '../types'
+import { DEMO_RIDERS, DEMO_STAGES, DEMO_STAGE_TIMES } from './demo'
 
 /*
  * Camada Supabase com FILA OFFLINE
@@ -27,6 +27,7 @@ const WAIT_GIVE_UP_MS = 30 * 60 * 1000
 interface RunRow {
   id: string
   rider_num: string
+  stage_id?: string
   started_at: string
   finished_at: string | null
   status: RunStatus
@@ -38,6 +39,7 @@ interface Op {
   id: string
   kind: OpKind
   num?: string
+  stageId?: string
   runId?: string
   /** Horário da ação (epoch ms, relógio do servidor estimado). */
   at: number
@@ -54,9 +56,10 @@ interface Resp {
 
 type Outcome = 'ok' | 'network' | 'wait' | 'blocked' | 'rejected'
 
-const toRun = (r: RunRow): Run => ({
+const toRun = (r: RunRow, fallbackStageId = 'stage-1'): Run => ({
   id: r.id,
   num: r.rider_num,
+  stageId: r.stage_id || fallbackStageId,
   start: new Date(r.started_at).getTime(),
   end: r.finished_at ? new Date(r.finished_at).getTime() : null,
   status: r.status,
@@ -105,10 +108,17 @@ function project(server: AppState, ops: Op[]): AppState {
   for (const op of ops) {
     if (op.kind === 'start') {
       if (!runs.some((r) => r.id === op.id)) {
-        runs.push({ id: op.id, num: op.num!, start: op.at, end: null, status: 'track' })
+        runs.push({
+          id: op.id,
+          num: op.num!,
+          stageId: op.stageId || server.stages[0]?.id || 'stage-1',
+          start: op.at,
+          end: null,
+          status: 'track',
+        })
       }
     } else if (op.kind === 'finish') {
-      const run = runs.find((r) => r.num === op.num && r.status === 'track')
+      const run = runs.find((r) => r.num === op.num && r.status === 'track' && (!op.stageId || r.stageId === op.stageId))
       if (run) {
         run.end = Math.max(op.at, run.start)
         run.status = 'done'
@@ -123,13 +133,21 @@ function project(server: AppState, ops: Op[]): AppState {
       runs = runs.filter((r) => r.id !== op.runId)
     }
   }
-  return { riders: server.riders, runs, categories: server.categories }
+  return { riders: server.riders, runs, categories: server.categories, stages: server.stages || [...DEFAULT_STAGES] }
 }
 
 export function createSupabaseApi(url: string, anonKey: string): Api {
   const sb = createClient(url, anonKey, { global: { fetch: timeoutFetch } })
 
-  let server: AppState = readJson<AppState>(CACHE_KEY, { riders: [], runs: [], categories: [...DEFAULT_CATEGORIES] })
+  let server: AppState = readJson<AppState>(CACHE_KEY, {
+    riders: [],
+    runs: [],
+    categories: [...DEFAULT_CATEGORIES],
+    stages: [...DEFAULT_STAGES],
+  })
+  if (!server.stages || server.stages.length === 0) {
+    server.stages = [...DEFAULT_STAGES]
+  }
   let queue: Op[] = readJson<Op[]>(QUEUE_KEY, [])
   let clockOffset = readJson<number>(OFFSET_KEY, 0)
   let online = typeof navigator === 'undefined' ? true : navigator.onLine
@@ -187,8 +205,9 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
 
       server = {
         riders: (riders.data ?? []).map((r) => ({ num: r.num, name: r.name, cat: r.category })),
-        runs: ((runs.data ?? []) as RunRow[]).map(toRun),
+        runs: ((runs.data ?? []) as RunRow[]).map((r) => toRun(r)),
         categories: cats.length > 0 ? cats : [...DEFAULT_CATEGORIES],
+        stages: server.stages && server.stages.length > 0 ? server.stages : [...DEFAULT_STAGES],
       }
       writeJson(CACHE_KEY, server)
       online = true
@@ -395,6 +414,37 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       await pull()
     },
 
+    async addStage(name: string) {
+      const trimmed = name.trim()
+      if (!trimmed) throw new Error('Nome da especial não pode ser vazio')
+      if (server.stages.some((st) => st.name.toLowerCase() === trimmed.toLowerCase())) {
+        throw new Error(`Especial "${trimmed}" já existe`)
+      }
+      const newStage: Stage = {
+        id: `stage-${Date.now()}`,
+        name: trimmed,
+        order: server.stages.length + 1,
+      }
+      server.stages.push(newStage)
+      writeJson(CACHE_KEY, server)
+      emit()
+    },
+
+    async removeStage(id: string) {
+      if (server.stages.length <= 1) {
+        throw new Error('A prova precisa de pelo menos uma especial cadastrada')
+      }
+      if (server.runs.some((r) => r.stageId === id)) {
+        throw new Error('Não é possível excluir esta especial pois já existem descidas vinculadas a ela')
+      }
+      server.stages = server.stages.filter((st) => st.id !== id)
+      server.stages.forEach((st, idx) => {
+        st.order = idx + 1
+      })
+      writeJson(CACHE_KEY, server)
+      emit()
+    },
+
     async addRider(rider) {
       const r = await sb.from('riders').insert({ num: rider.num, name: rider.name, category: rider.cat })
       if (r.error?.code === '23505') throw new Error(`Número #${rider.num} já existe`)
@@ -418,32 +468,54 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       await pull()
     },
 
-    async startRun(num) {
+    async startRun(num, stageId) {
       const st = view()
       const rider = st.riders.find((r) => r.num === num)
       if (!rider) throw new Error(`Piloto #${num} não cadastrado`)
-      if (st.runs.some((r) => r.num === num && r.status === 'track')) throw new Error(`${rider.name} já está na pista`)
+      const targetStageId = stageId || st.stages[0]?.id || 'stage-1'
+      const stage = st.stages.find((s) => s.id === targetStageId)
+      const stageName = stage ? stage.name : 'Especial'
+
+      if (st.runs.some((r) => r.num === num && r.status === 'track')) {
+        throw new Error(`${rider.name} já está na pista neste momento!`)
+      }
+      if (st.runs.some((r) => r.num === num && r.stageId === targetStageId && r.status === 'done')) {
+        throw new Error(`${rider.name} já concluiu a descida na ${stageName}`)
+      }
+
       const id = crypto.randomUUID()
-      enqueue({ id, kind: 'start', num, at: nowSrv(), label: `Largada · ${who(num)}` })
+      enqueue({
+        id,
+        kind: 'start',
+        num,
+        stageId: targetStageId,
+        at: nowSrv(),
+        label: `Largada · ${who(num)} (${stageName})`,
+      })
       return view().runs.find((r) => r.id === id) ?? null
     },
 
-    async finishRun(num, atEpochMs) {
+    async finishRun(num, atEpochMs, stageId) {
       const st = view()
       const rider = st.riders.find((r) => r.num === num)
       if (!rider) throw new Error(`Piloto #${num} não cadastrado`)
-      const open = st.runs.find((r) => r.num === num && r.status === 'track')
+      const open = st.runs.find((r) => r.num === num && r.status === 'track' && (!stageId || r.stageId === stageId))
       if (!open) {
-        // Com conexão, a informação é recente: não está na pista mesmo.
         if (online) throw new Error(`${rider.name} não está na pista`)
-        // Sem conexão pode ser que a largada ainda não tenha chegado: guarda e valida depois.
         if (queue.some((o) => o.kind === 'finish' && o.num === num)) {
           throw new Error(`Chegada de ${rider.name} já foi guardada`)
         }
         notice(`Sem conexão: chegada de ${rider.name} guardada e será validada ao sincronizar.`)
       }
       const finishTime = atEpochMs ?? nowSrv()
-      enqueue({ id: crypto.randomUUID(), kind: 'finish', num, at: finishTime, label: `Chegada · ${who(num)}` })
+      enqueue({
+        id: crypto.randomUUID(),
+        kind: 'finish',
+        num,
+        stageId: open?.stageId || stageId,
+        at: finishTime,
+        label: `Chegada · ${who(num)}`,
+      })
       return open ? (view().runs.find((r) => r.id === open.id) ?? null) : null
     },
 
@@ -461,17 +533,24 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
 
     async loadDemo() {
       ensure(await sb.from('riders').upsert(DEMO_RIDERS.map((r) => ({ num: r.num, name: r.name, category: r.cat }))))
+      server.stages = [...DEMO_STAGES]
+      writeJson(CACHE_KEY, server)
       const t = nowSrv()
-      ensure(
-        await sb.from('runs').insert(
-          DEMO_RIDERS.map((r, i) => ({
-            rider_num: r.num,
-            started_at: new Date(t - 600000 + i * 30000).toISOString(),
-            finished_at: new Date(t - 600000 + i * 30000 + DEMO_TIMES[r.num]).toISOString(),
+      const allDemoRuns: { rider_num: string; started_at: string; finished_at: string; status: 'done' }[] = []
+      DEMO_STAGES.forEach((stage, stageIdx) => {
+        const stageStartBase = t - (3 - stageIdx) * 1800000
+        DEMO_RIDERS.forEach((rider, riderIdx) => {
+          const riderTime = DEMO_STAGE_TIMES[rider.num]?.[stage.id] || 170000
+          const start = stageStartBase + riderIdx * 45000
+          allDemoRuns.push({
+            rider_num: rider.num,
+            started_at: new Date(start).toISOString(),
+            finished_at: new Date(start + riderTime).toISOString(),
             status: 'done',
-          })),
-        ),
-      )
+          })
+        })
+      })
+      ensure(await sb.from('runs').insert(allDemoRuns))
       await pull()
     },
 

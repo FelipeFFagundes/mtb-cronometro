@@ -1,32 +1,78 @@
-import type { Rider } from '../types'
+import type { Rider, Stage } from '../types'
+
+export const DEMO_STAGES: Stage[] = [
+  { id: 'stage-1', name: 'E1 · Linha Alta (Pico)', order: 1 },
+  { id: 'stage-2', name: 'E2 · Trilha da Onça (Rock Garden)', order: 2 },
+  { id: 'stage-3', name: 'E3 · Downhill das Antenas', order: 3 },
+]
 
 /**
- * Pilotos reais de demonstração baseados no Top mundial da Copa do Mundo UCI DHI (Downhill):
- * - Top 5 Masculino Elite: Loïc Bruni, Troy Brosnan, Amaury Pierron, Ronan Dunne, Finn Iles
- * - Top 3 Feminino Elite: Valentina Höll, Lisa Baumann, Harriet Harnden
+ * Atletas de demonstração de nível internacional:
+ * - Elite Masculino: Loïc Bruni, Troy Brosnan, Amaury Pierron, Ronan Dunne, Finn Iles
+ * - Elite Feminino: Valentina Höll, Lisa Baumann, Harriet Harnden
  */
 export const DEMO_RIDERS: Rider[] = [
-  // Top 5 Elite Masculino
+  // Elite Masculino
   { num: '1', name: 'Loïc Bruni', cat: 'Elite' },
   { num: '2', name: 'Troy Brosnan', cat: 'Elite' },
   { num: '3', name: 'Amaury Pierron', cat: 'Elite' },
   { num: '4', name: 'Ronan Dunne', cat: 'Elite' },
   { num: '5', name: 'Finn Iles', cat: 'Elite' },
 
-  // Top Elite Feminino
+  // Elite Feminino
   { num: '11', name: 'Valentina Höll', cat: 'Feminino' },
   { num: '12', name: 'Lisa Baumann', cat: 'Feminino' },
   { num: '13', name: 'Harriet Harnden', cat: 'Feminino' },
 ]
 
-/** Tempos de descida (ms) de exemplo para cada atleta */
-export const DEMO_TIMES: Record<string, number> = {
-  '1': 163240, // 02:43.24 - Loïc Bruni (1º)
-  '2': 164110, // 02:44.11 - Troy Brosnan (+0.87s)
-  '3': 164590, // 02:44.59 - Amaury Pierron (+1.35s)
-  '4': 165820, // 02:45.82 - Ronan Dunne (+2.58s)
-  '5': 166430, // 02:46.43 - Finn Iles (+3.19s)
-  '11': 182450, // 03:02.45 - Valentina Höll
-  '12': 184910, // 03:04.91 - Lisa Baumann
-  '13': 186300, // 03:06.30 - Harriet Harnden
+/** Tempos de descida (ms) por atleta para cada especial */
+export const DEMO_STAGE_TIMES: Record<string, Record<string, number>> = {
+  // Loïc Bruni
+  '1': {
+    'stage-1': 163240, // 02:43.24
+    'stage-2': 185110, // 03:05.11
+    'stage-3': 142300, // 02:22.30
+  },
+  // Troy Brosnan
+  '2': {
+    'stage-1': 164110, // 02:44.11 (+0.87)
+    'stage-2': 184500, // 03:04.50 (melhor na E2)
+    'stage-3': 143100, // 02:23.10 (+0.80)
+  },
+  // Amaury Pierron
+  '3': {
+    'stage-1': 164590, // 02:44.59
+    'stage-2': 186200, // 03:06.20
+    'stage-3': 141900, // 02:21.90 (melhor na E3)
+  },
+  // Ronan Dunne
+  '4': {
+    'stage-1': 165820,
+    'stage-2': 187400,
+    'stage-3': 144500,
+  },
+  // Finn Iles
+  '5': {
+    'stage-1': 166430,
+    'stage-2': 188100,
+    'stage-3': 145200,
+  },
+  // Valentina Höll
+  '11': {
+    'stage-1': 182450, // 03:02.45
+    'stage-2': 202100, // 03:22.10
+    'stage-3': 158300, // 02:38.30
+  },
+  // Lisa Baumann
+  '12': {
+    'stage-1': 184910,
+    'stage-2': 203400,
+    'stage-3': 159100,
+  },
+  // Harriet Harnden
+  '13': {
+    'stage-1': 186300,
+    'stage-2': 201900, // melhor na E2 feminino
+    'stage-3': 161200,
+  },
 }
