@@ -7,6 +7,7 @@ import { Ranking } from './components/Ranking'
 import { Pilotos } from './components/Pilotos'
 import { PublicView } from './components/PublicView'
 import { SyncBanner } from './components/SyncBanner'
+import { AdminLogin } from './components/AdminLogin'
 
 type AdminTab = 'largada' | 'chegada' | 'ranking' | 'pilotos'
 
@@ -17,17 +18,18 @@ const ADMIN_TABS: { id: AdminTab; icon: string; label: string }[] = [
   { id: 'pilotos', icon: '👥', label: 'Pilotos' },
 ]
 
+const AUTH_KEY = 'mtb-admin-auth-v1'
+
 /** Executa uma ação, mostra toast de sucesso/erro e devolve se deu certo. */
 export type Act = (fn: () => Promise<unknown>, okMsg?: string) => Promise<boolean>
 
-function getInitialMode(): 'public' | 'admin' {
-  const hash = location.hash.replace('#', '')
-  return hash === 'admin' ? 'admin' : 'public'
-}
-
 export default function App() {
   const { state, sync, pending, loading, error, refresh } = useStore()
-  const [mode, setMode] = useState<'public' | 'admin'>(getInitialMode)
+  const [mode, setMode] = useState<'public' | 'admin'>('public')
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem(AUTH_KEY) === 'true'
+  })
+  const [showLoginModal, setShowLoginModal] = useState(false)
   const [adminTab, setAdminTab] = useState<AdminTab>('largada')
   const [toast, setToast] = useState<{ msg: string; err: boolean } | null>(null)
   const timer = useRef<number | undefined>(undefined)
@@ -57,9 +59,35 @@ export default function App() {
     [refresh, show],
   )
 
-  const switchMode = (newMode: 'public' | 'admin') => {
-    setMode(newMode)
-    history.replaceState(null, '', newMode === 'admin' ? '#admin' : '#')
+  const handleRequestAdmin = () => {
+    if (isAdminAuthenticated) {
+      setMode('admin')
+      history.replaceState(null, '', '#admin')
+    } else {
+      setShowLoginModal(true)
+    }
+  }
+
+  const handleLoginSuccess = () => {
+    setIsAdminAuthenticated(true)
+    localStorage.setItem(AUTH_KEY, 'true')
+    setShowLoginModal(false)
+    setMode('admin')
+    history.replaceState(null, '', '#admin')
+    show('🔓 Acesso de administrador liberado!')
+  }
+
+  const handleLogout = () => {
+    setIsAdminAuthenticated(false)
+    localStorage.removeItem(AUTH_KEY)
+    setMode('public')
+    history.replaceState(null, '', '#')
+    show('🔒 Sessão de administrador encerrada.')
+  }
+
+  const switchToPublic = () => {
+    setMode('public')
+    history.replaceState(null, '', '#')
   }
 
   let chip = '● modo local'
@@ -79,21 +107,21 @@ export default function App() {
         </div>
 
         <div className="topbar-actions">
-          {/* Seletor de Modo: Público vs Admin */}
+          {/* Seletor de Modo: Público vs Admin com Proteção por Senha */}
           <div className="mode-switch">
             <button
               type="button"
               className={`mode-btn ${mode === 'public' ? 'active' : ''}`}
-              onClick={() => switchMode('public')}
+              onClick={switchToPublic}
             >
               👀 Resultados
             </button>
             <button
               type="button"
               className={`mode-btn ${mode === 'admin' ? 'active' : ''}`}
-              onClick={() => switchMode('admin')}
+              onClick={handleRequestAdmin}
             >
-              ⚙️ Fiscal / ADM
+              {isAdminAuthenticated ? '⚙️ Fiscal / ADM' : '🔒 Fiscal / ADM'}
             </button>
           </div>
 
@@ -101,7 +129,26 @@ export default function App() {
         </div>
       </header>
 
-      {mode === 'admin' && <SyncBanner sync={sync} pending={pending} />}
+      {/* Modal de Login por PIN */}
+      {showLoginModal && (
+        <AdminLogin
+          onSuccess={handleLoginSuccess}
+          onCancel={() => setShowLoginModal(false)}
+        />
+      )}
+
+      {mode === 'admin' && (
+        <>
+          <SyncBanner sync={sync} pending={pending} />
+          {/* Barra de utilidades do ADM (Logout / Sair) */}
+          <div className="admin-status-bar">
+            <span>Área de Operações e Fiscais</span>
+            <button type="button" className="btn-logout" onClick={handleLogout}>
+              Sair da conta
+            </button>
+          </div>
+        </>
+      )}
 
       <main>
         {error && <div className="banner">{error}</div>}

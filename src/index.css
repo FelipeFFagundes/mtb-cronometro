@@ -483,3 +483,115 @@ table.rank td.empty { text-align: center; color: var(--muted); padding: 24px; }
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* Modal de Login do Administrador */
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(11, 17, 24, 0.92);
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  backdrop-filter: blur(8px);
+}
+.login-modal {
+  width: 100%;
+  max-width: 360px;
+  text-align: center;
+  border: 2px solid var(--panel-2);
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.6);
+}
+.pin-display {
+  margin-bottom: 14px;
+}
+.pin-input {
+  font-size: 32px;
+  letter-spacing: 0.3em;
+  text-align: center;
+  font-family: monospace;
+  background: var(--bg);
+  border: 2px solid var(--panel-2);
+  border-radius: 12px;
+  padding: 10px;
+  color: var(--amber);
+  width: 100%;
+  box-sizing: border-box;
+}
+.pin-input.err {
+  border-color: var(--red);
+  animation: shake 0.3s ease-in-out;
+}
+.pin-error-msg {
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+/* Teclado numérico PIN */
+.pin-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.pin-key {
+  background: var(--panel-2);
+  border: 0;
+  color: var(--text);
+  font-size: 24px;
+  font-weight: 700;
+  padding: 16px 0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+.pin-key:active {
+  transform: scale(0.94);
+  background: var(--blue);
+  color: #082f49;
+}
+.pin-key.action {
+  font-size: 20px;
+  color: var(--muted);
+}
+.pin-key.submit {
+  background: var(--green);
+  color: #052e16;
+}
+.pin-key.submit:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Barra de utilitários do ADM */
+.admin-status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--panel-2);
+  padding: 6px 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.btn-logout {
+  background: transparent;
+  border: 0;
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.btn-logout:hover {
+  text-decoration: underline;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  75% { transform: translateX(6px); }
+}

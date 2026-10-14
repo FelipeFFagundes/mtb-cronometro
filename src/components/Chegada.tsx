@@ -19,9 +19,16 @@ interface ConfirmTarget {
   startAt: number | null
 }
 
+interface DnfTarget {
+  id: string
+  num: string
+  name: string
+}
+
 export function Chegada({ state, act, online }: Props) {
   const [num, setNum] = useState('')
   const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget | null>(null)
+  const [dnfTarget, setDnfTarget] = useState<DnfTarget | null>(null)
 
   const value = num.trim()
   const rider = state.riders.find((r) => r.num === value)
@@ -47,7 +54,7 @@ export function Chegada({ state, act, online }: Props) {
     )
   }
 
-  // Captura o instante do clique e pede confirmação
+  // Captura o instante do clique e pede confirmação de chegada
   const requestFinish = (n: string) => {
     const rName = state.riders.find((r) => r.num === n)?.name ?? `Piloto #${n}`
     const run = state.runs.find((r) => r.num === n && r.status === 'track')
@@ -59,6 +66,21 @@ export function Chegada({ state, act, online }: Props) {
       capturedAt,
       startAt: run ? run.start : null,
     })
+  }
+
+  // Executa o DNF após confirmação
+  const executeDnf = async (target: DnfTarget) => {
+    setDnfTarget(null)
+    return act(
+      () => api.dnfRun(target.id),
+      `⚠️ Piloto #${target.num} (${target.name}) marcado como DNF`
+    )
+  }
+
+  // Pede confirmação de DNF
+  const requestDnf = (runId: string, riderNum: string) => {
+    const rName = state.riders.find((r) => r.num === riderNum)?.name ?? `Piloto #${riderNum}`
+    setDnfTarget({ id: runId, num: riderNum, name: rName })
   }
 
   const submit = () => {
@@ -73,7 +95,7 @@ export function Chegada({ state, act, online }: Props) {
     <section>
       <h2>Chegada</h2>
 
-      {/* MODAL DE CONFIRMAÇÃO COM TEMPO CONGELADO VS TEMPO ROLANDO */}
+      {/* MODAL DE CONFIRMAÇÃO DE CHEGADA (COM TEMPO CONGELADO) */}
       {confirmTarget && (
         <div className="confirm-overlay">
           <div className="confirm-modal card">
@@ -118,6 +140,40 @@ export function Chegada({ state, act, online }: Props) {
         </div>
       )}
 
+      {/* MODAL DE CONFIRMAÇÃO DE DNF */}
+      {dnfTarget && (
+        <div className="confirm-overlay">
+          <div className="confirm-modal card" style={{ borderColor: 'var(--red)' }}>
+            <div style={{ fontSize: 36, marginBottom: 4 }}>⚠️</div>
+            <h3 style={{ margin: '0 0 6px', color: 'var(--red)', fontSize: 20 }}>Confirmar DNF (Não Terminou)?</h3>
+            <p style={{ margin: '0 0 16px', fontSize: 15, color: 'var(--text)' }}>
+              Tem certeza que deseja marcar <strong>#{dnfTarget.num} - {dnfTarget.name}</strong> como DNF?
+              <br />
+              <small style={{ color: 'var(--muted)' }}>O tempo na pista será encerrado sem classificação.</small>
+            </p>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button 
+                type="button" 
+                className="btn btn-ghost" 
+                style={{ flex: 1, marginTop: 0 }}
+                onClick={() => setDnfTarget(null)}
+              >
+                Cancelar (Segue na Pista)
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-finish" 
+                style={{ flex: 1.2, padding: 14, fontSize: 16, background: 'var(--red)' }}
+                onClick={() => void executeDnf(dnfTarget)}
+              >
+                CONFIRMAR DNF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <label htmlFor="finishNum">Número do piloto</label>
         <input
@@ -143,7 +199,7 @@ export function Chegada({ state, act, online }: Props) {
               </div>
               <div className="time"><LiveTimer start={run.start} /></div>
               <button className="mini finish" onClick={() => requestFinish(run.num)}>CHEGOU</button>
-              <button className="mini danger" onClick={() => void act(() => api.dnfRun(run.id))}>DNF</button>
+              <button className="mini danger" onClick={() => requestDnf(run.id, run.num)}>DNF</button>
             </li>
           )
         })}
