@@ -81,6 +81,7 @@ export interface Api {
   addCategory(name: string): Promise<void>
   removeCategory(name: string): Promise<void>
   addStage(name: string): Promise<void>
+  updateStage(id: string, name: string): Promise<void>
   removeStage(id: string): Promise<void>
   addRider(rider: Rider): Promise<void>
   updateRider(oldNum: string, updated: Rider): Promise<void>

@@ -106,6 +106,16 @@ export function createLocalApi(): Api {
       write(s)
     },
 
+    async updateStage(id: string, name: string) {
+      const s = read()
+      const stage = s.stages.find((st) => st.id === id)
+      if (!stage) throw new Error('Especial não encontrada')
+      const trimmed = name.trim()
+      if (!trimmed) throw new Error('Nome da especial não pode ser vazio')
+      stage.name = trimmed
+      write(s)
+    },
+
     async removeStage(id: string) {
       const s = read()
       if (s.stages.length <= 1) {

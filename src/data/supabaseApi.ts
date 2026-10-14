@@ -430,6 +430,16 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       emit()
     },
 
+    async updateStage(id: string, name: string) {
+      const stage = server.stages.find((st) => st.id === id)
+      if (!stage) throw new Error('Especial não encontrada')
+      const trimmed = name.trim()
+      if (!trimmed) throw new Error('Nome da especial não pode ser vazio')
+      stage.name = trimmed
+      writeJson(CACHE_KEY, server)
+      emit()
+    },
+
     async removeStage(id: string) {
       if (server.stages.length <= 1) {
         throw new Error('A prova precisa de pelo menos uma especial cadastrada')

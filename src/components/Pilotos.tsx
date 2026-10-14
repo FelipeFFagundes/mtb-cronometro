@@ -50,6 +50,7 @@ export function Pilotos({ state, act }: Props) {
   // Gerenciador de Especiais / Trilhas
   const [newStageName, setNewStageName] = useState('')
   const [showStageManager, setShowStageManager] = useState(false)
+  const [editingStage, setEditingStage] = useState<{ id: string; name: string } | null>(null)
 
   const stages = state.stages && state.stages.length > 0 ? state.stages : []
 
@@ -136,6 +137,17 @@ export function Pilotos({ state, act }: Props) {
   const removeStage = async (stageId: string, stageName: string) => {
     if (confirm(`Excluir a especial "${stageName}"?`)) {
       await act(() => api.removeStage(stageId), `Especial "${stageName}" removida`)
+    }
+  }
+
+  const saveEditStage = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!editingStage) return
+    const trimmed = editingStage.name.trim()
+    if (!trimmed) return act(async () => { throw new Error('O nome da especial não pode ser vazio') })
+    const ok = await act(() => api.updateStage(editingStage.id, trimmed), `Especial renomeada para "${trimmed}"!`)
+    if (ok) {
+      setEditingStage(null)
     }
   }
 
@@ -231,6 +243,55 @@ export function Pilotos({ state, act }: Props) {
                 sx={{ fontWeight: 700 }}
               >
                 Salvar Alterações
+              </Button>
+            </DialogActions>
+          </form>
+        )}
+      </Dialog>
+
+      {/* MODAL DE EDIÇÃO DE ESPECIAL */}
+      <Dialog
+        open={Boolean(editingStage)}
+        onClose={() => setEditingStage(null)}
+        maxWidth="xs"
+        fullWidth
+        slotProps={{ paper: { sx: { p: 1 } } }}
+      >
+        {editingStage && (
+          <form onSubmit={(e) => void saveEditStage(e)}>
+            <DialogTitle sx={{ fontWeight: 800 }}>
+              Editar Nome da Especial
+            </DialogTitle>
+
+            <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '10px !important' }}>
+              <TextField
+                label="Nome da Especial"
+                value={editingStage.name}
+                onChange={(e) => setEditingStage({ ...editingStage, name: e.target.value })}
+                placeholder="Ex: E1 · Trilha da Onça"
+                fullWidth
+                required
+                autoFocus
+              />
+            </DialogContent>
+
+            <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+              <Button
+                variant="outlined"
+                color="inherit"
+                fullWidth
+                onClick={() => setEditingStage(null)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                variant="contained"
+                color="secondary"
+                fullWidth
+                sx={{ fontWeight: 700 }}
+              >
+                Salvar Nome
               </Button>
             </DialogActions>
           </form>
@@ -447,7 +508,7 @@ export function Pilotos({ state, act }: Props) {
                       sx={{
                         py: 1.2,
                         pl: 2.5,
-                        pr: 6,
+                        pr: 11,
                         bgcolor: 'background.default',
                         borderRadius: 2.5,
                         mb: 0.8,
@@ -455,15 +516,28 @@ export function Pilotos({ state, act }: Props) {
                         alignItems: 'center',
                       }}
                       secondaryAction={
-                        <IconButton
-                          edge="end"
-                          color="error"
-                          size="small"
-                          onClick={() => void removeStage(st.id, st.name)}
-                          title="Excluir especial"
-                        >
-                          <DeleteOutlineRoundedIcon fontSize="small" />
-                        </IconButton>
+                        <Box sx={{ display: 'flex', gap: 0.5 }}>
+                          <IconButton
+                            edge="end"
+                            color="secondary"
+                            size="small"
+                            onClick={() => setEditingStage({ id: st.id, name: st.name })}
+                            title="Editar nome da especial"
+                            sx={{ bgcolor: 'rgba(34, 197, 94, 0.08)' }}
+                          >
+                            <EditRoundedIcon fontSize="small" />
+                          </IconButton>
+                          <IconButton
+                            edge="end"
+                            color="error"
+                            size="small"
+                            onClick={() => void removeStage(st.id, st.name)}
+                            title="Excluir especial"
+                            sx={{ bgcolor: 'rgba(239, 68, 68, 0.08)' }}
+                          >
+                            <DeleteOutlineRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
                       }
                     >
                       <ListItemAvatar sx={{ minWidth: 44 }}>
