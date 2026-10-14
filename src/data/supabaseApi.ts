@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import type { Api, AppState, PendingOp, Run, RunStatus, SyncStatus, Stage } from '../types'
 import { DEFAULT_CATEGORIES, DEFAULT_STAGES } from '../types'
-import { DEMO_RIDERS, DEMO_STAGES, DEMO_STAGE_TIMES } from './demo'
+import { DEMO_RIDERS, DEMO_STAGES } from './demo'
 
 /*
  * Camada Supabase com FILA OFFLINE
@@ -547,25 +547,12 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     },
 
     async loadDemo() {
+      // Limpa descidas anteriores para deixar sem tempos preenchidos
+      await sb.from('runs').delete().neq('id', '')
       ensure(await sb.from('riders').upsert(DEMO_RIDERS.map((r) => ({ num: r.num, name: r.name, category: r.cat }))))
       server.stages = [...DEMO_STAGES]
+      server.categories = ['Masculino', 'Feminino']
       writeJson(CACHE_KEY, server)
-      const t = nowSrv()
-      const allDemoRuns: { rider_num: string; started_at: string; finished_at: string; status: 'done' }[] = []
-      DEMO_STAGES.forEach((stage, stageIdx) => {
-        const stageStartBase = t - (3 - stageIdx) * 1800000
-        DEMO_RIDERS.forEach((rider, riderIdx) => {
-          const riderTime = DEMO_STAGE_TIMES[rider.num]?.[stage.id] || 170000
-          const start = stageStartBase + riderIdx * 45000
-          allDemoRuns.push({
-            rider_num: rider.num,
-            started_at: new Date(start).toISOString(),
-            finished_at: new Date(start + riderTime).toISOString(),
-            status: 'done',
-          })
-        })
-      })
-      ensure(await sb.from('runs').insert(allDemoRuns))
       await pull()
     },
 

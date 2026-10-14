@@ -26,6 +26,15 @@ import {
   Chip,
   Collapse,
   Alert,
+  ToggleButton,
+  ToggleButtonGroup,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
 } from '@mui/material'
 import PersonAddRoundedIcon from '@mui/icons-material/PersonAddRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
@@ -35,11 +44,23 @@ import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import ExpandLessRoundedIcon from '@mui/icons-material/ExpandLessRounded'
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import RouteRoundedIcon from '@mui/icons-material/RouteRounded'
+import FormatListNumberedRoundedIcon from '@mui/icons-material/FormatListNumberedRounded'
+import TuneRoundedIcon from '@mui/icons-material/TuneRounded'
 
 interface Props {
   state: AppState
   act: Act
 }
+
+export interface StartGridItem {
+  num: string
+  riderName: string
+  category: string
+  scheduledTimeStr: string
+  scheduledEpoch: number
+}
+
+export const STORAGE_GRID_KEY = 'mtb_start_grid'
 
 export function Pilotos({ state, act }: Props) {
   const [num, setNum] = useState('')
@@ -51,6 +72,72 @@ export function Pilotos({ state, act }: Props) {
   const [newStageName, setNewStageName] = useState('')
   const [showStageManager, setShowStageManager] = useState(false)
   const [editingStage, setEditingStage] = useState<{ id: string; name: string } | null>(null)
+
+  // Grade de Ordem de Largada
+  const [showGridManager, setShowGridManager] = useState(false)
+  const [gridStartTime, setGridStartTime] = useState('09:00')
+  const [gridIntervalMinutes, setGridIntervalMinutes] = useState(1)
+  const [gridSortBy, setGridSortBy] = useState<'num' | 'cat' | 'random'>('num')
+  const [gridItems, setGridItems] = useState<StartGridItem[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_GRID_KEY)
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })
+
+  const saveGrid = (items: StartGridItem[]) => {
+    setGridItems(items)
+    try {
+      localStorage.setItem(STORAGE_GRID_KEY, JSON.stringify(items))
+      window.dispatchEvent(new Event('storage'))
+    } catch (e) {
+      console.error('Falha ao salvar grade de largada:', e)
+    }
+  }
+
+  const handleGenerateGrid = () => {
+    if (state.riders.length === 0) {
+      return act(async () => { throw new Error('Cadastre pilotos antes de gerar a grade de largada') })
+    }
+
+    let sorted = [...state.riders]
+    if (gridSortBy === 'num') {
+      sorted.sort((a, b) => Number(a.num) - Number(b.num))
+    } else if (gridSortBy === 'cat') {
+      sorted.sort((a, b) => a.cat.localeCompare(b.cat) || Number(a.num) - Number(b.num))
+    } else if (gridSortBy === 'random') {
+      sorted.sort(() => Math.random() - 0.5)
+    }
+
+    const [hh, mm] = gridStartTime.split(':').map(Number)
+    const baseDate = new Date()
+    baseDate.setHours(isNaN(hh) ? 9 : hh, isNaN(mm) ? 0 : mm, 0, 0)
+    const baseEpoch = baseDate.getTime()
+    const intervalMs = Math.round(gridIntervalMinutes * 60 * 1000)
+
+    const items: StartGridItem[] = sorted.map((r, index) => {
+      const timeMs = baseEpoch + index * intervalMs
+      const date = new Date(timeMs)
+      const hours = String(date.getHours()).padStart(2, '0')
+      const minutes = String(date.getMinutes()).padStart(2, '0')
+      const seconds = String(date.getSeconds()).padStart(2, '0')
+      return {
+        num: r.num,
+        riderName: r.name,
+        category: r.cat,
+        scheduledTimeStr: `${hours}:${minutes}:${seconds}`,
+        scheduledEpoch: timeMs,
+      }
+    })
+
+    saveGrid(items)
+  }
+
+  const handleClearGrid = () => {
+    saveGrid([])
+  }
 
   const stages = state.stages && state.stages.length > 0 ? state.stages : []
 
@@ -729,6 +816,177 @@ export function Pilotos({ state, act }: Props) {
                   )
                 })}
               </List>
+            </Box>
+          </Collapse>
+        </CardContent>
+      </Card>
+
+      {/* GRADE DE ORDEM DE LARGADA */}
+      <Card sx={{ bgcolor: gridItems.length > 0 ? 'rgba(56, 189, 248, 0.03)' : 'background.paper' }}>
+        <CardContent sx={{ pb: '16px !important' }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <FormatListNumberedRoundedIcon color="primary" />
+              <Box>
+                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                  Grade de Ordem de Largada {gridItems.length > 0 ? `(${gridItems.length} atletas)` : ''}
+                </Typography>
+                {gridItems.length > 0 && (
+                  <Typography variant="caption" color="text.secondary">
+                    1ª largada às {gridItems[0]?.scheduledTimeStr} · Intervalo: {gridIntervalMinutes} min
+                  </Typography>
+                )}
+              </Box>
+            </Box>
+            <Button
+              size="small"
+              variant="outlined"
+              color={gridItems.length > 0 ? 'primary' : 'inherit'}
+              onClick={() => setShowGridManager(!showGridManager)}
+              endIcon={showGridManager ? <ExpandLessRoundedIcon /> : <ExpandMoreRoundedIcon />}
+              sx={{ borderRadius: 2, fontSize: '0.8rem' }}
+            >
+              {showGridManager ? 'Fechar' : gridItems.length > 0 ? 'Ver / Editar' : 'Configurar Grade'}
+            </Button>
+          </Box>
+
+          <Collapse in={showGridManager}>
+            <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              {/* CONFIGURAÇÃO DA GRADE */}
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr 1fr' }, gap: 2, mb: 2 }}>
+                {/* HORÁRIO INICIAL */}
+                <Box>
+                  <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5, color: 'text.secondary' }}>
+                    Horário da 1ª Largada
+                  </Typography>
+                  <TextField
+                    type="time"
+                    fullWidth
+                    size="small"
+                    value={gridStartTime}
+                    onChange={(e) => setGridStartTime(e.target.value)}
+                    slotProps={{
+                      htmlInput: { step: 300 },
+                    }}
+                  />
+                </Box>
+
+                {/* INTERVALO */}
+                <Box>
+                  <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5, color: 'text.secondary' }}>
+                    Intervalo entre Pilotos (minutos)
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 0.5, mb: 0.8, flexWrap: 'wrap' }}>
+                    {[0.5, 1, 2, 3].map((val) => (
+                      <Chip
+                        key={val}
+                        label={val === 0.5 ? '30s' : `${val}m`}
+                        size="small"
+                        onClick={() => setGridIntervalMinutes(val)}
+                        color={gridIntervalMinutes === val ? 'primary' : 'default'}
+                        variant={gridIntervalMinutes === val ? 'filled' : 'outlined'}
+                        sx={{ fontWeight: 700, fontSize: '0.7rem', height: 22 }}
+                      />
+                    ))}
+                  </Box>
+                  <TextField
+                    type="number"
+                    size="small"
+                    fullWidth
+                    value={gridIntervalMinutes}
+                    onChange={(e) => setGridIntervalMinutes(Math.max(0.1, Number(e.target.value)))}
+                    slotProps={{
+                      htmlInput: { min: 0.1, step: 0.5 },
+                    }}
+                  />
+                </Box>
+
+                {/* CRITÉRIO DE ORDENAÇÃO */}
+                <Box>
+                  <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5, color: 'text.secondary' }}>
+                    Ordenação dos Atletas
+                  </Typography>
+                  <ToggleButtonGroup
+                    value={gridSortBy}
+                    exclusive
+                    onChange={(_, val) => val && setGridSortBy(val)}
+                    size="small"
+                    fullWidth
+                    sx={{
+                      '& .MuiToggleButton-root': {
+                        fontWeight: 700,
+                        fontSize: '0.72rem',
+                        py: 0.6,
+                      },
+                    }}
+                  >
+                    <ToggleButton value="num">Número</ToggleButton>
+                    <ToggleButton value="cat">Categoria</ToggleButton>
+                    <ToggleButton value="random">Sorteio</ToggleButton>
+                  </ToggleButtonGroup>
+                </Box>
+              </Box>
+
+              {/* BOTÕES DE AÇÃO */}
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  onClick={handleGenerateGrid}
+                  startIcon={<TuneRoundedIcon />}
+                  sx={{ fontWeight: 800 }}
+                >
+                  {gridItems.length > 0 ? 'Regerar Grade com Estes Parâmetros' : 'Gerar Grade de Largada'}
+                </Button>
+
+                {gridItems.length > 0 && (
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    size="small"
+                    onClick={handleClearGrid}
+                    startIcon={<DeleteOutlineRoundedIcon />}
+                    sx={{ fontWeight: 700 }}
+                  >
+                    Limpar Grade
+                  </Button>
+                )}
+              </Box>
+
+              {/* TABELA COM A GRADE GERADA */}
+              {gridItems.length > 0 && (
+                <TableContainer component={Paper} sx={{ bgcolor: 'background.default', borderRadius: 2, border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow sx={{ bgcolor: 'rgba(255, 255, 255, 0.04)' }}>
+                        <TableCell sx={{ fontWeight: 800, width: 40 }}>ORDEM</TableCell>
+                        <TableCell sx={{ fontWeight: 800 }}>PILOTO</TableCell>
+                        <TableCell sx={{ fontWeight: 800 }}>CATEGORIA</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 800 }}>HORÁRIO PREVISTO</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {gridItems.map((item, idx) => (
+                        <TableRow key={item.num} sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
+                          <TableCell sx={{ fontWeight: 800, color: 'text.secondary' }}>{idx + 1}º</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <span>{item.riderName}</span>
+                              <Typography variant="caption" color="text.secondary">#{item.num}</Typography>
+                            </Box>
+                          </TableCell>
+                          <TableCell>
+                            <Chip label={item.category} size="small" sx={{ fontSize: '0.68rem', height: 18 }} />
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 800, color: 'primary.light' }}>
+                            {item.scheduledTimeStr}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
             </Box>
           </Collapse>
         </CardContent>

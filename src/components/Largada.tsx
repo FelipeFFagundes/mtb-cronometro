@@ -8,7 +8,6 @@ import {
   Box,
   Card,
   Typography,
-  TextField,
   Button,
   Chip,
   Dialog,
@@ -37,8 +36,6 @@ import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
 import RouteRoundedIcon from '@mui/icons-material/RouteRounded'
 import AccessTimeRoundedIcon from '@mui/icons-material/AccessTimeRounded'
 import FormatListNumberedRoundedIcon from '@mui/icons-material/FormatListNumberedRounded'
-import TuneRoundedIcon from '@mui/icons-material/TuneRounded'
-import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 
 interface Props {
   state: AppState
@@ -121,7 +118,7 @@ export function Largada({ state, act, online }: Props) {
     setCountdownTarget({ rider: r, stage: currentStage })
   }
 
-  // ESTADO DA GRADE DE ORDEM DE LARGADA
+  // ESTADO DA GRADE DE ORDEM DE LARGADA (gerenciada na aba Pilotos)
   const [gridItems, setGridItems] = useState<StartGridItem[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_GRID_KEY)
@@ -131,64 +128,21 @@ export function Largada({ state, act, online }: Props) {
     }
   })
 
-  // Modal de Configuração da Grade
-  const [configOpen, setConfigOpen] = useState(false)
-  const [viewGridOpen, setViewGridOpen] = useState(false)
-  const [startTimeInput, setStartTimeInput] = useState('09:00')
-  const [intervalMinutes, setIntervalMinutes] = useState(1)
-  const [sortBy, setSortBy] = useState<'num' | 'cat' | 'random'>('num')
-
-  // Salvar no localStorage
-  const saveGrid = (items: StartGridItem[]) => {
-    setGridItems(items)
-    try {
-      localStorage.setItem(STORAGE_GRID_KEY, JSON.stringify(items))
-    } catch (e) {
-      console.error('Falha ao salvar grade de largada:', e)
-    }
-  }
-
-  // Gerador da Grade de Ordem de Largada
-  const handleGenerateGrid = () => {
-    if (state.riders.length === 0) return
-
-    let sorted = [...state.riders]
-    if (sortBy === 'num') {
-      sorted.sort((a, b) => Number(a.num) - Number(b.num))
-    } else if (sortBy === 'cat') {
-      sorted.sort((a, b) => a.cat.localeCompare(b.cat) || Number(a.num) - Number(b.num))
-    } else if (sortBy === 'random') {
-      sorted.sort(() => Math.random() - 0.5)
-    }
-
-    const [hh, mm] = startTimeInput.split(':').map(Number)
-    const baseDate = new Date()
-    baseDate.setHours(isNaN(hh) ? 9 : hh, isNaN(mm) ? 0 : mm, 0, 0)
-    const baseEpoch = baseDate.getTime()
-    const intervalMs = Math.round(intervalMinutes * 60 * 1000)
-
-    const items: StartGridItem[] = sorted.map((r, index) => {
-      const timeMs = baseEpoch + index * intervalMs
-      const date = new Date(timeMs)
-      const hours = String(date.getHours()).padStart(2, '0')
-      const minutes = String(date.getMinutes()).padStart(2, '0')
-      const seconds = String(date.getSeconds()).padStart(2, '0')
-      return {
-        num: r.num,
-        riderName: r.name,
-        category: r.cat,
-        scheduledTimeStr: `${hours}:${minutes}:${seconds}`,
-        scheduledEpoch: timeMs,
+  // Sincronizar quando a grade for gerada/limpa em Pilotos.tsx
+  useEffect(() => {
+    const handleStorage = () => {
+      try {
+        const saved = localStorage.getItem(STORAGE_GRID_KEY)
+        setGridItems(saved ? JSON.parse(saved) : [])
+      } catch {
+        setGridItems([])
       }
-    })
+    }
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
+  }, [])
 
-    saveGrid(items)
-    setConfigOpen(false)
-  }
-
-  const handleClearGrid = () => {
-    saveGrid([])
-  }
+  const [viewGridOpen, setViewGridOpen] = useState(false)
 
   // Mapeamento rápido da grade por número do piloto
   const gridMap = useMemo(() => {
@@ -280,100 +234,64 @@ export function Largada({ state, act, online }: Props) {
         </Box>
       </Card>
 
-      {/* PAINEL / BANNER DA GRADE DE ORDEM DE LARGADA */}
-      <Card
-        sx={{
-          p: 2,
-          bgcolor: gridItems.length > 0 ? 'rgba(56, 189, 248, 0.04)' : 'background.paper',
-          border: gridItems.length > 0 ? '1px solid rgba(56, 189, 248, 0.25)' : '1px solid rgba(255, 255, 255, 0.08)',
-          borderRadius: 2.5,
-        }}
-      >
-        <Box
+      {/* BANNER DA GRADE DE ORDEM DE LARGADA */}
+      {gridItems.length > 0 && (
+        <Card
           sx={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: { xs: 'flex-start', sm: 'center' },
-            flexDirection: { xs: 'column', sm: 'row' },
-            gap: 1.5,
+            p: 2,
+            bgcolor: 'rgba(56, 189, 248, 0.04)',
+            border: '1px solid rgba(56, 189, 248, 0.25)',
+            borderRadius: 2.5,
           }}
         >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <Box
-              sx={{
-                width: 42,
-                height: 42,
-                borderRadius: '50%',
-                bgcolor: gridItems.length > 0 ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 255, 255, 0.06)',
-                color: gridItems.length > 0 ? 'primary.main' : 'text.secondary',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              <FormatListNumberedRoundedIcon sx={{ fontSize: 24 }} />
-            </Box>
-            <Box>
-              <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                {gridItems.length > 0 ? 'Grade de Ordem de Largada Ativa' : 'Grade de Ordem de Largada'}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {gridItems.length > 0
-                  ? `Início: ${gridItems[0]?.scheduledTimeStr} · Intervalo: ${intervalMinutes} min · ${gridItems.length} atletas escalados`
-                  : 'Gere os horários de largada automáticos para os pilotos com espaçamento programado.'}
-              </Typography>
-            </Box>
-          </Box>
-
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', width: { xs: '100%', sm: 'auto' } }}>
-            {gridItems.length > 0 ? (
-              <>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="primary"
-                  onClick={() => setViewGridOpen(true)}
-                  startIcon={<AccessTimeRoundedIcon />}
-                  sx={{ fontWeight: 700, flex: { xs: 1, sm: 'auto' } }}
-                >
-                  Ver Grade
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="inherit"
-                  onClick={() => setConfigOpen(true)}
-                  startIcon={<TuneRoundedIcon />}
-                  sx={{ fontWeight: 700 }}
-                >
-                  Reconfigurar
-                </Button>
-                <IconButton
-                  size="small"
-                  color="error"
-                  onClick={handleClearGrid}
-                  title="Limpar grade"
-                  sx={{ border: '1px solid rgba(239, 68, 68, 0.3)' }}
-                >
-                  <DeleteOutlineRoundedIcon fontSize="small" />
-                </IconButton>
-              </>
-            ) : (
-              <Button
-                variant="contained"
-                color="primary"
-                size="small"
-                onClick={() => setConfigOpen(true)}
-                startIcon={<TuneRoundedIcon />}
-                sx={{ fontWeight: 800, width: { xs: '100%', sm: 'auto' } }}
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: { xs: 'flex-start', sm: 'center' },
+              flexDirection: { xs: 'column', sm: 'row' },
+              gap: 1.5,
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Box
+                sx={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: '50%',
+                  bgcolor: 'rgba(56, 189, 248, 0.15)',
+                  color: 'primary.main',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
               >
-                Gerar Grade de Largada
-              </Button>
-            )}
+                <FormatListNumberedRoundedIcon sx={{ fontSize: 24 }} />
+              </Box>
+              <Box>
+                <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                  Grade de Ordem de Largada Ativa
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {`Início: ${gridItems[0]?.scheduledTimeStr} · ${gridItems.length} atletas ordenados (configurado na aba Pilotos)`}
+                </Typography>
+              </Box>
+            </Box>
+
+            <Button
+              size="small"
+              variant="outlined"
+              color="primary"
+              onClick={() => setViewGridOpen(true)}
+              startIcon={<AccessTimeRoundedIcon />}
+              sx={{ fontWeight: 700, width: { xs: '100%', sm: 'auto' } }}
+            >
+              Ver Grade Completa
+            </Button>
           </Box>
-        </Box>
-      </Card>
+        </Card>
+      )}
 
       {/* MODAL DE CONTAGEM REGRESSIVA EM TELA CHEIA (3, 2, 1, VAI!) */}
       <Dialog
@@ -584,138 +502,7 @@ export function Largada({ state, act, online }: Props) {
         )}
       </Box>
 
-      {/* MODAL DE CONFIGURAÇÃO DA GRADE DE ORDEM DE LARGADA */}
-      <Dialog
-        open={configOpen}
-        onClose={() => setConfigOpen(false)}
-        maxWidth="xs"
-        fullWidth
-        slotProps={{
-          paper: {
-            sx: {
-              p: 2,
-              borderRadius: 3,
-            },
-          },
-        }}
-      >
-        <DialogTitle sx={{ pb: 1, px: 1 }}>
-          <Typography variant="h6" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <TuneRoundedIcon color="primary" /> Configurar Grade de Largada
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Gera os horários de largada para os {state.riders.length} pilotos cadastrados.
-          </Typography>
-        </DialogTitle>
 
-        <DialogContent sx={{ px: 1, py: 2, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-          {/* HORÁRIO DA PRIMEIRA LARGADA */}
-          <Box>
-            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.8 }}>
-              Horário da 1ª Largada
-            </Typography>
-            <TextField
-              type="time"
-              fullWidth
-              size="small"
-              value={startTimeInput}
-              onChange={(e) => setStartTimeInput(e.target.value)}
-              slotProps={{
-                inputLabel: { shrink: true },
-                htmlInput: { step: 300 },
-              }}
-            />
-          </Box>
-
-          {/* INTERVALO ENTRE PILOTOS (MINUTOS) */}
-          <Box>
-            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.8 }}>
-              Intervalo entre Pilotos
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
-              {[0.5, 1, 2, 3].map((val) => (
-                <Chip
-                  key={val}
-                  label={val === 0.5 ? '30 seg' : `${val} min`}
-                  onClick={() => setIntervalMinutes(val)}
-                  color={intervalMinutes === val ? 'primary' : 'default'}
-                  variant={intervalMinutes === val ? 'filled' : 'outlined'}
-                  sx={{ fontWeight: 700 }}
-                />
-              ))}
-            </Box>
-            <TextField
-              type="number"
-              label="Intervalo personalizado (minutos)"
-              fullWidth
-              size="small"
-              value={intervalMinutes}
-              onChange={(e) => setIntervalMinutes(Math.max(0.1, Number(e.target.value)))}
-              slotProps={{
-                htmlInput: { min: 0.1, step: 0.5 },
-              }}
-            />
-          </Box>
-
-          {/* CRITÉRIO DE ORDENAÇÃO */}
-          <Box>
-            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.8 }}>
-              Critério de Ordenação
-            </Typography>
-            <ToggleButtonGroup
-              value={sortBy}
-              exclusive
-              onChange={(_, val) => val && setSortBy(val)}
-              size="small"
-              fullWidth
-              sx={{
-                '& .MuiToggleButton-root': {
-                  fontWeight: 700,
-                  fontSize: '0.78rem',
-                  py: 0.8,
-                },
-              }}
-            >
-              <ToggleButton value="num">Por Número</ToggleButton>
-              <ToggleButton value="cat">Por Categoria</ToggleButton>
-              <ToggleButton value="random">Sorteio</ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-
-          {/* PREVIEW DO TEMPO TOTAL DA GRADE */}
-          {state.riders.length > 0 && (
-            <Box sx={{ p: 1.5, bgcolor: 'background.default', borderRadius: 2, border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                Resumo da Prova:
-              </Typography>
-              <Typography variant="body2" sx={{ fontWeight: 700, mt: 0.5 }}>
-                {state.riders.length} pilotos espaçados em {intervalMinutes} min.
-              </Typography>
-              <Typography variant="caption" sx={{ color: 'primary.light', display: 'block', mt: 0.2 }}>
-                1ª largada: {startTimeInput} · Término previsto: {
-                  (() => {
-                    const [hh, mm] = startTimeInput.split(':').map(Number)
-                    const baseDate = new Date()
-                    baseDate.setHours(hh || 9, mm || 0, 0, 0)
-                    const endMs = baseDate.getTime() + (state.riders.length - 1) * intervalMinutes * 60 * 1000
-                    const endDate = new Date(endMs)
-                    return `${String(endDate.getHours()).padStart(2, '0')}:${String(endDate.getMinutes()).padStart(2, '0')}`
-                  })()
-                }
-              </Typography>
-            </Box>
-          )}
-        </DialogContent>
-
-        <DialogActions sx={{ px: 2, pb: 1, gap: 1 }}>
-          <Button variant="text" color="inherit" onClick={() => setConfigOpen(false)}>
-            Cancelar
-          </Button>
-          <Button variant="contained" color="primary" onClick={handleGenerateGrid} sx={{ fontWeight: 800 }}>
-            Gerar Grade de Largada
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* MODAL DE VISUALIZAÇÃO COMPLETA DA GRADE */}
       <Dialog
