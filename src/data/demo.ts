@@ -1,9 +1,9 @@
 import type { Rider, Stage } from '../types'
 
 export const DEMO_STAGES: Stage[] = [
-  { id: 'stage-1', name: 'E1 · Linha Alta (Pico)', order: 1 },
-  { id: 'stage-2', name: 'E2 · Trilha da Onça (Rock Garden)', order: 2 },
-  { id: 'stage-3', name: 'E3 · Downhill das Antenas', order: 3 },
+  { id: 'stage-1', name: 'E1 - SPET', order: 1 },
+  { id: 'stage-2', name: 'E2 - Erechim', order: 2 },
+  { id: 'stage-3', name: 'E3 - teste', order: 3 },
 ]
 
 /**

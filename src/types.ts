@@ -7,9 +7,9 @@ export interface Stage {
 }
 
 export const DEFAULT_STAGES: Stage[] = [
-  { id: 'stage-1', name: 'Especial 1', order: 1 },
-  { id: 'stage-2', name: 'Especial 2', order: 2 },
-  { id: 'stage-3', name: 'Especial 3', order: 3 },
+  { id: 'stage-1', name: 'E1 - SPET', order: 1 },
+  { id: 'stage-2', name: 'E2 - Erechim', order: 2 },
+  { id: 'stage-3', name: 'E3 - teste', order: 3 },
 ]
 
 export type RunStatus = 'track' | 'done' | 'dnf'

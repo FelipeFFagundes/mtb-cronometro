@@ -82,11 +82,9 @@ export function createLocalApi(): Api {
 
     async removeCategory(name: string) {
       const s = read()
-      if (s.riders.some((r) => r.cat === name)) {
-        throw new Error(`Não é possível remover "${name}": existem pilotos vinculados a ela`)
-      }
       s.categories = s.categories.filter((c) => c !== name)
-      if (s.categories.length === 0) s.categories = ['Geral']
+      // Atletas vinculados a esta categoria ficam como 'Sem Categoria'
+      s.riders = s.riders.map((r) => (r.cat === name ? { ...r, cat: 'Sem Categoria' } : r))
       write(s)
     },
 
@@ -121,10 +119,9 @@ export function createLocalApi(): Api {
       if (s.stages.length <= 1) {
         throw new Error('A prova precisa de pelo menos uma especial cadastrada')
       }
-      if (s.runs.some((r) => r.stageId === id)) {
-        throw new Error('Não é possível excluir esta especial pois já existem descidas vinculadas a ela')
-      }
+      // Deleta a especial e remove em cascata todas as descidas vinculadas a ela
       s.stages = s.stages.filter((st) => st.id !== id)
+      s.runs = s.runs.filter((r) => r.stageId !== id)
       // reordena
       s.stages.forEach((st, idx) => {
         st.order = idx + 1
@@ -168,6 +165,11 @@ export function createLocalApi(): Api {
       const rider = s.riders.find((r) => r.num === num)
       if (!rider) throw new Error(`Piloto #${num} não cadastrado`)
       
+      // Bloqueia se o piloto não tiver categoria configurada
+      if (!rider.cat || rider.cat === 'Sem Categoria' || rider.cat.trim() === '') {
+        throw new Error(`Piloto #${rider.num} (${rider.name}) está sem categoria. Configure a categoria em "Pilotos" antes de iniciar a descida.`)
+      }
+
       const targetStageId = stageId || s.stages[0]?.id || 'stage-1'
       const stage = s.stages.find((st) => st.id === targetStageId)
       const stageName = stage ? stage.name : 'Especial'

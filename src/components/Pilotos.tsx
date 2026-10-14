@@ -56,8 +56,10 @@ export function Pilotos({ state, act }: Props) {
 
   // Estado para piloto em edição (modal)
   const [editingRider, setEditingRider] = useState<{ originalNum: string; num: string; name: string; cat: string } | null>(null)
-  // Estado para confirmação de remoção de piloto
+  // Estado para confirmação de remoção de piloto, categoria e especial
   const [deletingRider, setDeletingRider] = useState<Rider | null>(null)
+  const [deletingCategory, setDeletingCategory] = useState<{ name: string; ridersCount: number } | null>(null)
+  const [deletingStage, setDeletingStage] = useState<{ id: string; name: string; runsCount: number } | null>(null)
 
   const categories = state.categories && state.categories.length > 0 ? state.categories : ['Geral']
   const [cat, setCat] = useState<string>(categories[0] || 'Geral')
@@ -119,10 +121,14 @@ export function Pilotos({ state, act }: Props) {
     }
   }
 
-  const removeCategory = async (catName: string) => {
-    if (confirm(`Excluir a categoria "${catName}"?`)) {
-      await act(() => api.removeCategory(catName), `Categoria "${catName}" removida`)
-    }
+  const executeRemoveCategory = async () => {
+    if (!deletingCategory) return
+    const name = deletingCategory.name
+    setDeletingCategory(null)
+    await act(
+      () => api.removeCategory(name),
+      `Categoria "${name}" removida. Atletas vinculados agora estão "Sem Categoria".`
+    )
   }
 
   const submitStage = async (e: FormEvent) => {
@@ -134,10 +140,14 @@ export function Pilotos({ state, act }: Props) {
     }
   }
 
-  const removeStage = async (stageId: string, stageName: string) => {
-    if (confirm(`Excluir a especial "${stageName}"?`)) {
-      await act(() => api.removeStage(stageId), `Especial "${stageName}" removida`)
-    }
+  const executeRemoveStage = async () => {
+    if (!deletingStage) return
+    const stage = deletingStage
+    setDeletingStage(null)
+    await act(
+      () => api.removeStage(stage.id),
+      `Especial "${stage.name}" e todas as suas descidas foram excluídas com sucesso.`
+    )
   }
 
   const saveEditStage = async (e: FormEvent) => {
@@ -370,6 +380,157 @@ export function Pilotos({ state, act }: Props) {
         )}
       </Dialog>
 
+      {/* MODAL DE CONFIRMAÇÃO DE EXCLUSÃO DE CATEGORIA */}
+      <Dialog
+        open={Boolean(deletingCategory)}
+        onClose={() => setDeletingCategory(null)}
+        maxWidth="xs"
+        fullWidth
+        slotProps={{
+          paper: {
+            sx: {
+              p: 1.5,
+              textAlign: 'center',
+              borderColor: 'warning.main',
+            },
+          },
+        }}
+      >
+        {deletingCategory && (
+          <>
+            <DialogTitle sx={{ pb: 1 }}>
+              <Box
+                sx={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: '50%',
+                  bgcolor: 'rgba(245, 158, 11, 0.15)',
+                  color: 'warning.main',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 12px',
+                }}
+              >
+                <WarningAmberRoundedIcon sx={{ fontSize: 32 }} />
+              </Box>
+              <Typography variant="h5" color="warning.main" sx={{ fontWeight: 800 }}>
+                Excluir Categoria?
+              </Typography>
+            </DialogTitle>
+
+            <DialogContent sx={{ py: 1 }}>
+              <Typography variant="body1">
+                Tem certeza que deseja excluir a categoria <strong>"{deletingCategory.name}"</strong>?
+              </Typography>
+              <Alert severity="warning" sx={{ mt: 2, borderRadius: 2, textAlign: 'left' }}>
+                {deletingCategory.ridersCount > 0 ? (
+                  <>
+                    Existem <strong>{deletingCategory.ridersCount} atleta(s)</strong> vinculados a esta categoria. Eles passarão para o status <strong>"Sem Categoria"</strong> e não poderão largar até serem reclassificados.
+                  </>
+                ) : (
+                  'Nenhum atleta vinculado a esta categoria atualmente.'
+                )}
+              </Alert>
+            </DialogContent>
+
+            <DialogActions sx={{ px: 2, pb: 2, gap: 1 }}>
+              <Button
+                variant="outlined"
+                color="inherit"
+                fullWidth
+                onClick={() => setDeletingCategory(null)}
+                sx={{ py: 1.2 }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="contained"
+                color="error"
+                fullWidth
+                onClick={() => void executeRemoveCategory()}
+                sx={{ py: 1.2, fontWeight: 800 }}
+              >
+                SIM, EXCLUIR
+              </Button>
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
+
+      {/* MODAL DE CONFIRMAÇÃO DE EXCLUSÃO DE ESPECIAL */}
+      <Dialog
+        open={Boolean(deletingStage)}
+        onClose={() => setDeletingStage(null)}
+        maxWidth="xs"
+        fullWidth
+        slotProps={{
+          paper: {
+            sx: {
+              p: 1.5,
+              textAlign: 'center',
+              borderColor: 'error.main',
+            },
+          },
+        }}
+      >
+        {deletingStage && (
+          <>
+            <DialogTitle sx={{ pb: 1 }}>
+              <Box
+                sx={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: '50%',
+                  bgcolor: 'rgba(239, 68, 68, 0.15)',
+                  color: 'error.main',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 12px',
+                }}
+              >
+                <WarningAmberRoundedIcon sx={{ fontSize: 32 }} />
+              </Box>
+              <Typography variant="h5" color="error.main" sx={{ fontWeight: 800 }}>
+                Excluir Especial?
+              </Typography>
+            </DialogTitle>
+
+            <DialogContent sx={{ py: 1 }}>
+              <Typography variant="body1">
+                Tem certeza que deseja excluir <strong>"{deletingStage.name}"</strong>?
+              </Typography>
+              <Alert severity="error" sx={{ mt: 2, borderRadius: 2, textAlign: 'left' }}>
+                <strong>Atenção:</strong> A especial será excluída permanentemente junto com{' '}
+                <strong>{deletingStage.runsCount} descida(s) gravada(s)</strong>. Todos os tempos correspondentes dos atletas serão perdidos.
+              </Alert>
+            </DialogContent>
+
+            <DialogActions sx={{ px: 2, pb: 2, gap: 1 }}>
+              <Button
+                variant="outlined"
+                color="inherit"
+                fullWidth
+                onClick={() => setDeletingStage(null)}
+                sx={{ py: 1.2 }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="contained"
+                color="error"
+                fullWidth
+                onClick={() => void executeRemoveStage()}
+                sx={{ py: 1.2, fontWeight: 800 }}
+              >
+                SIM, EXCLUIR TUDO
+              </Button>
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
+
       {/* GERENCIADOR DE CATEGORIAS EXPANSÍVEL */}
       <Card>
         <CardContent sx={{ pb: '16px !important' }}>
@@ -434,7 +595,7 @@ export function Pilotos({ state, act }: Props) {
                           edge="end"
                           color="error"
                           size="small"
-                          onClick={() => void removeCategory(c)}
+                          onClick={() => setDeletingCategory({ name: c, ridersCount: count })}
                           title="Excluir categoria"
                         >
                           <DeleteOutlineRoundedIcon fontSize="small" />
@@ -531,7 +692,7 @@ export function Pilotos({ state, act }: Props) {
                             edge="end"
                             color="error"
                             size="small"
-                            onClick={() => void removeStage(st.id, st.name)}
+                            onClick={() => setDeletingStage({ id: st.id, name: st.name, runsCount })}
                             title="Excluir especial"
                             sx={{ bgcolor: 'rgba(239, 68, 68, 0.08)' }}
                           >
@@ -689,7 +850,19 @@ export function Pilotos({ state, act }: Props) {
                 </ListItemAvatar>
                 <ListItemText
                   primary={<Typography variant="body1" sx={{ fontWeight: 700 }}>{r.name}</Typography>}
-                  secondary={<Typography variant="caption" color="text.secondary">{r.cat}</Typography>}
+                  secondary={
+                    !r.cat || r.cat === 'Sem Categoria' ? (
+                      <Chip
+                        label="Sem Categoria"
+                        size="small"
+                        color="error"
+                        variant="filled"
+                        sx={{ fontSize: '0.68rem', height: 18, mt: 0.5, fontWeight: 700 }}
+                      />
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">{r.cat}</Typography>
+                    )
+                  }
                 />
               </ListItem>
             </Card>

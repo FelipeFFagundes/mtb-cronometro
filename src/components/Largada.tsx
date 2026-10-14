@@ -60,6 +60,9 @@ export function Largada({ state, act, online }: Props) {
     if (!rider) {
       previewMsg = `Piloto #${value} não encontrado`
       previewSeverity = 'error'
+    } else if (!rider.cat || rider.cat === 'Sem Categoria' || rider.cat.trim() === '') {
+      previewMsg = `Piloto #${rider.num} SEM CATEGORIA configurada. Defina a categoria em Atletas antes de largar.`
+      previewSeverity = 'error'
     } else if (onTrack) {
       previewMsg = `${rider.name} já está na pista!`
       previewSeverity = 'error'
@@ -105,6 +108,11 @@ export function Largada({ state, act, online }: Props) {
   }
 
   const startCountdown = (r: Rider) => {
+    if (!r.cat || r.cat === 'Sem Categoria' || r.cat.trim() === '') {
+      return act(async () => {
+        throw new Error(`Piloto #${r.num} (${r.name}) está sem categoria configurada. Defina uma categoria antes de largar.`)
+      })
+    }
     if (state.runs.some((run) => run.num === r.num && run.status === 'track')) {
       return act(async () => { throw new Error(`${r.name} já está na pista`) })
     }
@@ -115,6 +123,11 @@ export function Largada({ state, act, online }: Props) {
   const submit = () => {
     if (!value) return act(async () => { throw new Error('Informe ou selecione um piloto') })
     if (!rider) return act(async () => { throw new Error(`Piloto #${value} não encontrado`) })
+    if (!rider.cat || rider.cat === 'Sem Categoria' || rider.cat.trim() === '') {
+      return act(async () => {
+        throw new Error(`Piloto #${rider.num} (${rider.name}) está sem categoria configurada. Defina uma categoria antes de largar.`)
+      })
+    }
     if (onTrack) return act(async () => { throw new Error(`${rider.name} já está na pista`) })
     startCountdown(rider)
   }
@@ -377,8 +390,10 @@ export function Largada({ state, act, online }: Props) {
                         #{r.num}
                       </Typography>
                       <Chip
-                        label={r.cat}
+                        label={!r.cat || r.cat === 'Sem Categoria' ? 'Sem Categoria' : r.cat}
                         size="small"
+                        color={!r.cat || r.cat === 'Sem Categoria' ? 'error' : 'default'}
+                        variant={!r.cat || r.cat === 'Sem Categoria' ? 'filled' : 'outlined'}
                         sx={{ fontSize: '0.68rem', height: 20 }}
                       />
                     </Box>

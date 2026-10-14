@@ -399,18 +399,15 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     },
 
     async removeCategory(name: string) {
-      if (server.riders.some((r) => r.cat === name)) {
-        throw new Error(`Não é possível remover "${name}": existem pilotos vinculados a ela`)
-      }
-
+      await sb.from('riders').update({ category: 'Sem Categoria' }).eq('category', name)
       const { error } = await sb.from('categories').delete().eq('name', name)
       if (error && error.code !== '42P01' && error.code !== 'PGRST205') {
         ensure({ error, status: 400 })
-      } else if (error && (error.code === '42P01' || error.code === 'PGRST205')) {
-        server.categories = server.categories.filter((c) => c !== name)
-        writeJson(CACHE_KEY, server)
-        emit()
       }
+      server.categories = server.categories.filter((c) => c !== name)
+      server.riders = server.riders.map((r) => (r.cat === name ? { ...r, cat: 'Sem Categoria' } : r))
+      writeJson(CACHE_KEY, server)
+      emit()
       await pull()
     },
 
@@ -444,10 +441,9 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       if (server.stages.length <= 1) {
         throw new Error('A prova precisa de pelo menos uma especial cadastrada')
       }
-      if (server.runs.some((r) => r.stageId === id)) {
-        throw new Error('Não é possível excluir esta especial pois já existem descidas vinculadas a ela')
-      }
+      // Deleta a especial e remove em cascata as descidas vinculadas
       server.stages = server.stages.filter((st) => st.id !== id)
+      server.runs = server.runs.filter((r) => r.stageId !== id)
       server.stages.forEach((st, idx) => {
         st.order = idx + 1
       })
@@ -482,6 +478,12 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       const st = view()
       const rider = st.riders.find((r) => r.num === num)
       if (!rider) throw new Error(`Piloto #${num} não cadastrado`)
+      
+      // Bloqueia se o piloto não tiver categoria configurada
+      if (!rider.cat || rider.cat === 'Sem Categoria' || rider.cat.trim() === '') {
+        throw new Error(`Piloto #${rider.num} (${rider.name}) está sem categoria. Configure a categoria em "Pilotos" antes de iniciar a descida.`)
+      }
+
       const targetStageId = stageId || st.stages[0]?.id || 'stage-1'
       const stage = st.stages.find((s) => s.id === targetStageId)
       const stageName = stage ? stage.name : 'Especial'
