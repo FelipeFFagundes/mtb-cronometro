@@ -1,6 +1,6 @@
 import type { Api, AppState, Run, Stage } from '../types'
 import { DEFAULT_CATEGORIES, DEFAULT_STAGES } from '../types'
-import { DEMO_RIDERS, DEMO_STAGES, DEMO_STAGE_TIMES } from './demo'
+import { DEMO_RIDERS, DEMO_STAGES } from './demo'
 
 const KEY = 'mtb-cronometro-v3'
 
@@ -177,8 +177,8 @@ export function createLocalApi(): Api {
       if (s.runs.some((r) => r.num === num && r.status === 'track')) {
         throw new Error(`${rider.name} já está na pista neste momento!`)
       }
-      if (s.runs.some((r) => r.num === num && r.stageId === targetStageId && r.status === 'done')) {
-        throw new Error(`${rider.name} já concluiu a descida na ${stageName}`)
+      if (s.runs.some((r) => r.num === num && r.stageId === targetStageId && (r.status === 'done' || r.status === 'dnf'))) {
+        throw new Error(`${rider.name} já possui descida registrada na ${stageName}`)
       }
 
       const run: Run = {
@@ -211,7 +211,7 @@ export function createLocalApi(): Api {
       const run = s.runs.find((r) => r.id === id)
       if (!run) return
       run.status = 'dnf'
-      run.end = Date.now()
+      if (!run.end) run.end = Date.now()
       write(s)
     },
 
@@ -222,33 +222,11 @@ export function createLocalApi(): Api {
     },
 
     async loadDemo() {
-      const t = Date.now()
-      const stages = [...DEMO_STAGES]
-      const riders = [...DEMO_RIDERS]
-      const runs: Run[] = []
-
-      // Gera as descidas para as 3 especiais com tempos de Enduro consistentes
-      stages.forEach((stage, stageIdx) => {
-        const stageStartBase = t - (3 - stageIdx) * 1800000 // 30 min entre cada especial
-        riders.forEach((rider, riderIdx) => {
-          const riderTime = DEMO_STAGE_TIMES[rider.num]?.[stage.id] || 170000
-          const start = stageStartBase + riderIdx * 45000
-          runs.push({
-            id: `demo-${stage.id}-${rider.num}`,
-            num: rider.num,
-            stageId: stage.id,
-            start,
-            end: start + riderTime,
-            status: 'done',
-          })
-        })
-      })
-
       write({
-        riders,
-        runs,
+        riders: [...DEMO_RIDERS],
+        runs: [],
         categories: [...DEFAULT_CATEGORIES],
-        stages,
+        stages: [...DEMO_STAGES],
       })
     },
 

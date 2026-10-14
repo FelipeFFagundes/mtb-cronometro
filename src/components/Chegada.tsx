@@ -8,9 +8,7 @@ import { LiveTimer } from './LiveTimer'
 import {
   Box,
   Card,
-  CardContent,
   Typography,
-  TextField,
   Button,
   Chip,
   Dialog,
@@ -29,14 +27,22 @@ import {
 } from '@mui/material'
 import FlagRoundedIcon from '@mui/icons-material/FlagRounded'
 import WarningRoundedIcon from '@mui/icons-material/WarningRounded'
-import UndoRoundedIcon from '@mui/icons-material/UndoRounded'
-import SportsScoreRoundedIcon from '@mui/icons-material/SportsScoreRounded'
 import RouteRoundedIcon from '@mui/icons-material/RouteRounded'
+import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 
 interface Props {
   state: AppState
   act: Act
   online: boolean
+}
+
+interface RunActionTarget {
+  id: string
+  num: string
+  name: string
+  stageName?: string
+  timeStr?: string
+  isDnf: boolean
 }
 
 interface ConfirmTarget {
@@ -57,43 +63,18 @@ interface DnfTarget {
 }
 
 export function Chegada({ state, act, online }: Props) {
-  const [num, setNum] = useState('')
   const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget | null>(null)
   const [dnfTarget, setDnfTarget] = useState<DnfTarget | null>(null)
+  const [runActionTarget, setRunActionTarget] = useState<RunActionTarget | null>(null)
 
   const stages = state.stages && state.stages.length > 0 ? state.stages : DEFAULT_STAGES
   const [selectedFilterStage, setSelectedFilterStage] = useState<string>('all')
-
-  const value = num.trim()
-  const rider = state.riders.find((r) => r.num === value)
-  const onTrackRun = state.runs.find((r) => r.num === value && r.status === 'track')
-  const onTrack = Boolean(onTrackRun)
-  const onTrackStage = onTrackRun ? stages.find((s) => s.id === onTrackRun.stageId) : null
-
-  let previewMsg = 'Digite o número ou aperte CHEGOU na lista de atletas na pista'
-  let previewSeverity: 'info' | 'success' | 'error' = 'info'
-  if (value) {
-    if (!rider) {
-      previewMsg = `Piloto #${value} não encontrado`
-      previewSeverity = 'error'
-    } else if (!onTrack && !online) {
-      previewMsg = `${rider.name} · largada não sincronizada (offline), será validada depois`
-      previewSeverity = 'info'
-    } else if (!onTrack) {
-      previewMsg = `${rider.name} não está na pista`
-      previewSeverity = 'error'
-    } else {
-      previewMsg = `${rider.name} · ${rider.cat} (${onTrackStage?.name ?? 'Especial'})`
-      previewSeverity = 'success'
-    }
-  }
 
   // Registra a chegada de fato usando o tempo capturado no 1º clique
   const executeFinish = async (target: ConfirmTarget) => {
     const targetName = target.name
     const stageLabel = target.stageName ? ` (${target.stageName})` : ''
     setConfirmTarget(null)
-    setNum('')
     return act(
       () => api.finishRun(target.num, target.capturedAt, target.stageId).then(() => undefined),
       `🏁 ${targetName} concluiu${stageLabel}! ` +
@@ -134,11 +115,6 @@ export function Chegada({ state, act, online }: Props) {
     const run = state.runs.find((r) => r.id === runId)
     const runStage = run ? stages.find((s) => s.id === run.stageId) : null
     setDnfTarget({ id: runId, num: riderNum, name: rName, stageName: runStage?.name })
-  }
-
-  const submit = () => {
-    if (!value) return act(async () => { throw new Error('Informe o número do piloto') })
-    requestFinish(value)
   }
 
   // Filtra atletas na pista (pode filtrar por especial ou todas)
@@ -386,67 +362,141 @@ export function Chegada({ state, act, online }: Props) {
         )}
       </Dialog>
 
-      {/* CARD PRINCIPAL DE DISPARO DE CHEGADA */}
-      <Card sx={{ p: { xs: 2, sm: 3 } }}>
-        <CardContent sx={{ p: 0 }}>
-          <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5, fontWeight: 600 }}>
-            NÚMERO DO ATLETA NA CHEGADA
-          </Typography>
+      {/* MODAL DE GERENCIAR/INVALIDAR DESCIDA REGISTRADA */}
+      <Dialog
+        open={Boolean(runActionTarget)}
+        onClose={() => setRunActionTarget(null)}
+        maxWidth="xs"
+        fullWidth
+        slotProps={{
+          paper: {
+            sx: {
+              p: 2,
+              textAlign: 'center',
+            },
+          },
+        }}
+      >
+        {runActionTarget && (
+          <>
+            <DialogTitle sx={{ pb: 1 }}>
+              <Box
+                sx={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: '50%',
+                  bgcolor: 'rgba(245, 158, 11, 0.15)',
+                  color: 'warning.main',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 12px',
+                }}
+              >
+                <WarningRoundedIcon sx={{ fontSize: 32 }} />
+              </Box>
+              <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                Gerenciar Descida
+              </Typography>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 0.5 }}>
+                Atleta <strong>#{runActionTarget.num} - {runActionTarget.name}</strong>
+              </Typography>
+              <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, mt: 1 }}>
+                {runActionTarget.stageName && (
+                  <Chip label={runActionTarget.stageName} size="small" color="primary" variant="outlined" />
+                )}
+                <Chip
+                  label={runActionTarget.timeStr}
+                  size="small"
+                  color={runActionTarget.isDnf ? 'error' : 'secondary'}
+                  sx={{ fontWeight: 700 }}
+                />
+              </Box>
+            </DialogTitle>
 
-          <TextField
-            fullWidth
-            value={num}
-            onChange={(e) => setNum(e.target.value.replace(/\D/g, ''))}
-            onKeyDown={(e) => e.key === 'Enter' && submit()}
-            placeholder="104"
-            slotProps={{
-              htmlInput: {
-                inputMode: 'numeric',
-                pattern: '[0-9]*',
-                style: {
-                  textAlign: 'center',
-                  fontSize: '2.8rem',
-                  fontWeight: 800,
-                  letterSpacing: '0.05em',
-                  padding: '12px 14px',
-                },
-              },
-            }}
-            sx={{ mb: 2 }}
-          />
+            <DialogContent sx={{ py: 1.5, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Typography variant="body2" color="text.secondary">
+                Escolha a ação desejada para esta descida:
+              </Typography>
 
-          <Alert
-            severity={previewSeverity}
-            sx={{
-              mb: 2.5,
-              borderRadius: 2,
-              justifyContent: 'center',
-              fontWeight: 600,
-              fontSize: '1rem',
-            }}
-          >
-            {previewMsg}
-          </Alert>
+              {/* OPÇÃO 1: MARCAR COMO DNF / DSQ */}
+              {!runActionTarget.isDnf ? (
+                <Button
+                  variant="outlined"
+                  color="warning"
+                  fullWidth
+                  onClick={async () => {
+                    const target = runActionTarget
+                    setRunActionTarget(null)
+                    await act(
+                      () => api.dnfRun(target.id),
+                      `⚠️ Descida do piloto #${target.num} marcada como DNF / Desclassificado`
+                    )
+                  }}
+                  sx={{
+                    py: 1.2,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 0.5,
+                  }}
+                >
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                    Marcar como DNF / Desclassificado
+                  </Typography>
+                  <Typography variant="caption" sx={{ textTransform: 'none', opacity: 0.85, fontSize: '0.72rem' }}>
+                    Mantém a descida gravada, mas exclui o tempo do ranking oficial.
+                  </Typography>
+                </Button>
+              ) : (
+                <Alert severity="warning" sx={{ textAlign: 'left', py: 0.5 }}>
+                  Esta descida já está marcada como <strong>DNF</strong> no ranking.
+                </Alert>
+              )}
 
-          <Button
-            fullWidth
-            variant="contained"
-            color="error"
-            size="large"
-            onClick={submit}
-            startIcon={<SportsScoreRoundedIcon sx={{ fontSize: '2.4rem !important' }} />}
-            sx={{
-              py: 2.2,
-              fontSize: '1.6rem',
-              fontWeight: 900,
-              letterSpacing: '0.04em',
-              borderRadius: 3,
-            }}
-          >
-            CHEGOU
-          </Button>
-        </CardContent>
-      </Card>
+              {/* OPÇÃO 2: EXCLUIR DESCIDA */}
+              <Button
+                variant="outlined"
+                color="error"
+                fullWidth
+                onClick={async () => {
+                  const target = runActionTarget
+                  setRunActionTarget(null)
+                  await act(
+                    () => api.undoRun(target.id),
+                    `🗑️ Descida do piloto #${target.num} excluída. O piloto pode relargar.`
+                  )
+                }}
+                sx={{
+                  py: 1.2,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 0.5,
+                }}
+              >
+                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                  Excluir Descida Definitivamente
+                </Typography>
+                <Typography variant="caption" sx={{ textTransform: 'none', opacity: 0.85, fontSize: '0.72rem' }}>
+                  Apaga a descida por completo do sistema e permite relargar nesta especial.
+                </Typography>
+              </Button>
+            </DialogContent>
+
+            <DialogActions sx={{ px: 2, pb: 1 }}>
+              <Button
+                variant="text"
+                color="inherit"
+                fullWidth
+                onClick={() => setRunActionTarget(null)}
+              >
+                Voltar
+              </Button>
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
 
       {/* NA PISTA AGORA */}
       <Box>
@@ -579,12 +629,22 @@ export function Chegada({ state, act, online }: Props) {
                   secondaryAction={
                     <IconButton
                       edge="end"
-                      color="error"
+                      color="inherit"
                       size="small"
-                      onClick={() => void act(() => api.undoRun(run.id), `Descida do piloto #${run.num} desfeita`)}
-                      title="Desfazer chegada"
+                      onClick={() =>
+                        setRunActionTarget({
+                          id: run.id,
+                          num: run.num,
+                          name: r?.name ?? `Piloto #${run.num}`,
+                          stageName: st?.name ?? 'Especial',
+                          timeStr: isDnf ? 'DNF' : fmt(run.end! - run.start),
+                          isDnf,
+                        })
+                      }
+                      title="Gerenciar / Invalidar descida"
+                      sx={{ color: 'text.secondary', '&:hover': { color: 'warning.main' } }}
                     >
-                      <UndoRoundedIcon fontSize="small" />
+                      <MoreVertRoundedIcon fontSize="small" />
                     </IconButton>
                   }
                 >
