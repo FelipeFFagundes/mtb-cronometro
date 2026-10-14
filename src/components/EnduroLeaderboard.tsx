@@ -118,9 +118,10 @@ export function EnduroLeaderboard({
       {/* TABELA DE CLASSIFICAÇÃO RESPONSIVA */}
       <TableContainer
         component={Paper}
+        square
         sx={{
-          borderRadius: 3,
-          border: '1px solid rgba(255, 255, 255, 0.08)',
+          borderRadius: 0,
+          border: '1px solid rgba(255, 255, 255, 0.1)',
           overflowX: 'auto',
           pb: 0.5,
           scrollbarWidth: 'thin',
@@ -130,13 +131,11 @@ export function EnduroLeaderboard({
           },
           '&::-webkit-scrollbar-track': {
             bgcolor: 'rgba(255, 255, 255, 0.02)',
-            borderRadius: 999,
             mx: 1.5,
             mb: 0.5,
           },
           '&::-webkit-scrollbar-thumb': {
             bgcolor: 'rgba(56, 189, 248, 0.35)',
-            borderRadius: 999,
             '&:hover': {
               bgcolor: 'rgba(56, 189, 248, 0.7)',
             },

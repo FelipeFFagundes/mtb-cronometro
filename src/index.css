@@ -151,7 +151,7 @@ input:focus, select:focus { border-color: var(--blue); }
 }
 .chip.active { background: var(--blue); border-color: var(--blue); color: #082f49; }
 
-.table-wrap { background: var(--panel); border-radius: var(--radius); overflow: hidden; }
+.table-wrap { background: var(--panel); border-radius: 0; overflow: hidden; }
 table.rank { width: 100%; border-collapse: collapse; }
 table.rank th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); text-align: left; padding: 10px 12px; background: var(--panel-2); }
 table.rank td { padding: 12px; border-top: 1px solid var(--panel-2); font-variant-numeric: tabular-nums; }
