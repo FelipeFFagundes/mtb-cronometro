@@ -1,0 +1,74 @@
+export const CATEGORIES = ['Elite', 'Master', 'Sport', 'Feminino', 'Iniciante'] as const
+
+export type RunStatus = 'track' | 'done' | 'dnf'
+
+export interface Rider {
+  num: string
+  name: string
+  cat: string
+}
+
+/** Uma descida. `start`/`end` são epoch em ms (horário do servidor no modo Supabase). */
+export interface Run {
+  id: string
+  num: string
+  start: number
+  end: number | null
+  status: RunStatus
+}
+
+export interface AppState {
+  riders: Rider[]
+  runs: Run[]
+}
+
+export interface SyncStatus {
+  /** Último contato com o servidor deu certo. */
+  online: boolean
+  /** Enviando a fila neste momento. */
+  syncing: boolean
+  /** Quantidade de ações aguardando envio. */
+  pending: number
+}
+
+/** Ação registrada no aparelho que ainda não foi confirmada pelo servidor. */
+export interface PendingOp {
+  id: string
+  label: string
+  /** Horário em que a ação aconteceu (epoch ms). */
+  at: number
+  /** Tentativas em que o servidor pediu para aguardar (ex.: largada ainda não chegou). */
+  attempts: number
+}
+
+/**
+ * Contrato da camada de dados. Há duas implementações:
+ * - localApi: localStorage (protótipo, sincroniza só entre abas)
+ * - supabaseApi: banco em tempo real, com fila offline e horário corrigido pelo servidor
+ * Os métodos lançam `Error` com mensagem pronta para exibir ao usuário.
+ */
+export interface Api {
+  mode: 'local' | 'supabase'
+  /** Estado atual já com as ações pendentes aplicadas (resposta imediata, sem rede). */
+  load(): Promise<AppState>
+  /** Avisa quando algo mudou (aqui ou em outro dispositivo). Retorna função para cancelar. */
+  subscribe(onChange: () => void): () => void
+  /** Diferença (ms) entre o relógio do servidor e o do aparelho. */
+  getClockOffset(): number
+  getSync(): SyncStatus
+  getPending(): PendingOp[]
+  /** Tenta enviar a fila agora. */
+  syncNow(): Promise<void>
+  /** Remove uma ação da fila sem enviá-la. */
+  discardPending(id: string): void
+  /** Avisos assíncronos (ex.: ação rejeitada pelo servidor ao sincronizar). */
+  onNotice(cb: (msg: string, isError: boolean) => void): () => void
+  addRider(rider: Rider): Promise<void>
+  removeRider(num: string): Promise<void>
+  startRun(num: string): Promise<Run | null>
+  finishRun(num: string): Promise<Run | null>
+  dnfRun(id: string): Promise<void>
+  undoRun(id: string): Promise<void>
+  loadDemo(): Promise<void>
+  reset(): Promise<void>
+}

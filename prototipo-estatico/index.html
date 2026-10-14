@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#0f1720" />
+  <title>MTB Cronômetro</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🚵 <strong>MTB</strong> Cronômetro</div>
+    <div class="sync" id="syncStatus" title="Sincronização entre abas (simulada)">● sincronizado</div>
+  </header>
+
+  <main>
+    <!-- LARGADA -->
+    <section id="view-largada" class="view">
+      <h2>Largada</h2>
+      <div class="card">
+        <label for="startNum">Número do piloto</label>
+        <input id="startNum" type="text" inputmode="numeric" autocomplete="off" placeholder="Ex: 104" />
+        <div class="preview" id="startPreview">Digite o número…</div>
+        <button class="btn btn-start" id="btnStart">LARGAR</button>
+      </div>
+      <h3>Últimas largadas</h3>
+      <ul class="list" id="startList"></ul>
+    </section>
+
+    <!-- CHEGADA -->
+    <section id="view-chegada" class="view">
+      <h2>Chegada</h2>
+      <div class="card">
+        <label for="finishNum">Número do piloto</label>
+        <input id="finishNum" type="text" inputmode="numeric" autocomplete="off" placeholder="Ex: 104" />
+        <div class="preview" id="finishPreview">Digite o número…</div>
+        <button class="btn btn-finish" id="btnFinish">CHEGOU</button>
+      </div>
+      <h3>Na pista agora <span class="badge" id="trackCount">0</span></h3>
+      <ul class="list" id="trackList"></ul>
+      <h3>Últimas chegadas</h3>
+      <ul class="list" id="finishList"></ul>
+    </section>
+
+    <!-- RANKING -->
+    <section id="view-ranking" class="view">
+      <h2>Ranking</h2>
+      <div class="chips" id="catChips"></div>
+      <div class="table-wrap">
+        <table class="rank">
+          <thead>
+            <tr><th>#</th><th>Piloto</th><th>Categoria</th><th class="r">Tempo</th><th class="r">Diferença</th></tr>
+          </thead>
+          <tbody id="rankBody"></tbody>
+        </table>
+      </div>
+      <p class="hint">Considera a <strong>melhor descida</strong> de cada piloto.</p>
+    </section>
+
+    <!-- PILOTOS -->
+    <section id="view-pilotos" class="view">
+      <h2>Pilotos</h2>
+      <form class="card" id="riderForm">
+        <div class="row">
+          <div>
+            <label for="rNum">Nº</label>
+            <input id="rNum" type="text" inputmode="numeric" required placeholder="104" />
+          </div>
+          <div class="grow">
+            <label for="rName">Nome</label>
+            <input id="rName" type="text" required placeholder="Lucas Silva" />
+          </div>
+        </div>
+        <label for="rCat">Categoria</label>
+        <select id="rCat"></select>
+        <button class="btn btn-primary" type="submit">Adicionar piloto</button>
+      </form>
+      <ul class="list" id="riderList"></ul>
+      <div class="danger-zone">
+        <button class="btn btn-ghost" id="btnDemo">Carregar dados de exemplo</button>
+        <button class="btn btn-ghost danger" id="btnReset">Apagar tudo</button>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabs">
+    <button data-view="largada"><span>🚦</span>Largada</button>
+    <button data-view="chegada"><span>🏁</span>Chegada</button>
+    <button data-view="ranking"><span>🏆</span>Ranking</button>
+    <button data-view="pilotos"><span>👥</span>Pilotos</button>
+  </nav>
+
+  <div class="toast" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>

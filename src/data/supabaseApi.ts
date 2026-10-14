@@ -1,0 +1,425 @@
+import { createClient } from '@supabase/supabase-js'
+import type { Api, AppState, PendingOp, Run, RunStatus, SyncStatus } from '../types'
+import { DEMO_RIDERS, DEMO_TIMES } from './demo'
+
+/*
+ * Camada Supabase com FILA OFFLINE
+ *
+ * - Toda largada/chegada/DNF/desfazer vira uma "ação" gravada no aparelho (localStorage) com o
+ *   horário do toque (relógio do servidor estimado = relógio local + offset medido online).
+ * - A tela mostra o estado do servidor (cache) + as ações pendentes aplicadas por cima: a resposta é
+ *   imediata mesmo sem sinal.
+ * - Em segundo plano a fila é enviada em ordem. Falha de rede = tenta de novo; rejeição do servidor
+ *   (ex.: piloto já está na pista) = descarta a ação e avisa.
+ * - As funções do banco são idempotentes: reenviar uma ação não duplica nada.
+ */
+
+const CACHE_KEY = 'mtb-cache-v1'
+const QUEUE_KEY = 'mtb-queue-v1'
+const OFFSET_KEY = 'mtb-offset-v1'
+
+const OFFLINE_MSG = 'Sem conexão. Tente novamente quando houver sinal.'
+const REQUEST_TIMEOUT_MS = 8000
+/** Chegada sem largada correspondente é descartada depois deste tempo. */
+const WAIT_GIVE_UP_MS = 30 * 60 * 1000
+
+interface RunRow {
+  id: string
+  rider_num: string
+  started_at: string
+  finished_at: string | null
+  status: RunStatus
+}
+
+type OpKind = 'start' | 'finish' | 'dnf' | 'undo'
+
+interface Op {
+  id: string
+  kind: OpKind
+  num?: string
+  runId?: string
+  /** Horário da ação (epoch ms, relógio do servidor estimado). */
+  at: number
+  label: string
+  createdAt: number
+  attempts: number
+  nextTry?: number
+}
+
+interface Resp {
+  error: { message: string; code?: string } | null
+  status: number
+}
+
+type Outcome = 'ok' | 'network' | 'wait' | 'blocked' | 'rejected'
+
+const toRun = (r: RunRow): Run => ({
+  id: r.id,
+  num: r.rider_num,
+  start: new Date(r.started_at).getTime(),
+  end: r.finished_at ? new Date(r.finished_at).getTime() : null,
+  status: r.status,
+})
+
+function readJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key)
+    if (raw) return JSON.parse(raw) as T
+  } catch {
+    /* dados corrompidos: usa o padrão */
+  }
+  return fallback
+}
+
+function writeJson(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    /* armazenamento cheio/bloqueado */
+  }
+}
+
+/** fetch com tempo limite: em sinal fraco a requisição não pode ficar pendurada para sempre. */
+const timeoutFetch: typeof fetch = (input, init) => {
+  if (typeof AbortSignal === 'undefined' || typeof AbortSignal.timeout !== 'function') return fetch(input, init)
+  const timer = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+  const signal =
+    init?.signal && typeof AbortSignal.any === 'function' ? AbortSignal.any([init.signal, timer]) : (init?.signal ?? timer)
+  return fetch(input, { ...init, signal })
+}
+
+function classify(r: Resp): Outcome {
+  if (!r.error) return 'ok'
+  // status 0 = a requisição nem chegou ao servidor (sem rede / timeout)
+  if (r.status === 0 || r.status === 408 || r.status === 429 || r.status >= 500) return 'network'
+  if (r.error.code === 'MTB01') return 'wait'
+  // função inexistente: o schema.sql novo ainda não foi aplicado no banco
+  if (r.error.code === 'PGRST202' || r.status === 404) return 'blocked'
+  return 'rejected'
+}
+
+/** Estado exibido = estado do servidor + ações pendentes aplicadas em ordem. */
+function project(server: AppState, ops: Op[]): AppState {
+  let runs = server.runs.map((r) => ({ ...r }))
+  for (const op of ops) {
+    if (op.kind === 'start') {
+      if (!runs.some((r) => r.id === op.id)) {
+        runs.push({ id: op.id, num: op.num!, start: op.at, end: null, status: 'track' })
+      }
+    } else if (op.kind === 'finish') {
+      const run = runs.find((r) => r.num === op.num && r.status === 'track')
+      if (run) {
+        run.end = Math.max(op.at, run.start)
+        run.status = 'done'
+      }
+    } else if (op.kind === 'dnf') {
+      const run = runs.find((r) => r.id === op.runId && r.status === 'track')
+      if (run) {
+        run.end = Math.max(op.at, run.start)
+        run.status = 'dnf'
+      }
+    } else if (op.kind === 'undo') {
+      runs = runs.filter((r) => r.id !== op.runId)
+    }
+  }
+  return { riders: server.riders, runs }
+}
+
+export function createSupabaseApi(url: string, anonKey: string): Api {
+  const sb = createClient(url, anonKey, { global: { fetch: timeoutFetch } })
+
+  let server: AppState = readJson<AppState>(CACHE_KEY, { riders: [], runs: [] })
+  let queue: Op[] = readJson<Op[]>(QUEUE_KEY, [])
+  let clockOffset = readJson<number>(OFFSET_KEY, 0)
+  let online = typeof navigator === 'undefined' ? true : navigator.onLine
+  let syncing = false
+  let pulling = false
+  let flushing = false
+
+  const listeners = new Set<() => void>()
+  const noticeListeners = new Set<(msg: string, isError: boolean) => void>()
+  const emit = () => listeners.forEach((l) => l())
+  const notice = (msg: string, isError = false) => noticeListeners.forEach((l) => l(msg, isError))
+
+  const nowSrv = () => Date.now() + clockOffset
+  const saveQueue = () => writeJson(QUEUE_KEY, queue)
+  const view = () => project(server, queue)
+
+  function setOnline(value: boolean) {
+    if (online === value) return
+    online = value
+    emit()
+  }
+
+  function ensure(r: Resp) {
+    if (!r.error) return
+    if (classify(r) === 'network') {
+      setOnline(false)
+      throw new Error(OFFLINE_MSG)
+    }
+    throw new Error(r.error.message)
+  }
+
+  /** Busca o estado do servidor e guarda em cache. */
+  async function pull(): Promise<boolean> {
+    if (pulling) return online
+    pulling = true
+    try {
+      const [riders, runs] = await Promise.all([
+        sb.from('riders').select('num,name,category').order('num'),
+        sb.from('runs').select('id,rider_num,started_at,finished_at,status').order('started_at'),
+      ])
+      if (riders.error || runs.error) {
+        setOnline(false)
+        return false
+      }
+      server = {
+        riders: (riders.data ?? []).map((r) => ({ num: r.num, name: r.name, cat: r.category })),
+        runs: ((runs.data ?? []) as RunRow[]).map(toRun),
+      }
+      writeJson(CACHE_KEY, server)
+      online = true
+      emit()
+      return true
+    } finally {
+      pulling = false
+    }
+  }
+
+  /** Mede a diferença entre o relógio do servidor e o do aparelho (menor latência vence). */
+  async function syncClock() {
+    let best: { rtt: number; offset: number } | null = null
+    for (let i = 0; i < 3; i++) {
+      const t0 = Date.now()
+      const r = await sb.rpc('server_now')
+      const t1 = Date.now()
+      if (r.error || !r.data) {
+        if (classify(r) === 'network') break
+        continue
+      }
+      const offset = new Date(r.data as string).getTime() - (t0 + t1) / 2
+      if (!best || t1 - t0 < best.rtt) best = { rtt: t1 - t0, offset }
+    }
+    if (best) {
+      clockOffset = best.offset
+      writeJson(OFFSET_KEY, clockOffset)
+    }
+  }
+
+  async function send(op: Op): Promise<Resp> {
+    const at = new Date(op.at).toISOString()
+    if (op.kind === 'start') return sb.rpc('start_run', { p_num: op.num, p_at: at, p_id: op.id })
+    if (op.kind === 'finish') return sb.rpc('finish_run', { p_num: op.num, p_at: at })
+    if (op.kind === 'dnf') return sb.rpc('dnf_run', { p_id: op.runId, p_at: at })
+    return sb.from('runs').delete().eq('id', op.runId!)
+  }
+
+  const removeOp = (id: string) => {
+    queue = queue.filter((o) => o.id !== id)
+  }
+
+  /** Envia a fila em ordem. */
+  async function flush(): Promise<void> {
+    if (flushing || queue.length === 0) return
+    flushing = true
+    syncing = true
+    emit()
+    let sent = false
+    try {
+      for (const op of [...queue]) {
+        if (op.nextTry && op.nextTry > Date.now()) continue
+        const resp = await send(op)
+        const outcome = classify(resp)
+        if (outcome === 'ok') {
+          removeOp(op.id)
+          sent = true
+          online = true
+        } else if (outcome === 'network') {
+          online = false
+          break
+        } else if (outcome === 'blocked') {
+          const retryAt = Date.now() + 30000
+          queue.forEach((o) => (o.nextTry = retryAt))
+          notice('O banco precisa ser atualizado (rode supabase/schema.sql). As ações continuam guardadas.', true)
+          break
+        } else if (outcome === 'wait') {
+          // Ex.: a chegada chegou antes da largada (celular da largada sem sinal). Tenta de novo depois.
+          op.attempts += 1
+          op.nextTry = Date.now() + Math.min(5000 * op.attempts, 30000)
+          if (Date.now() - op.createdAt > WAIT_GIVE_UP_MS) {
+            removeOp(op.id)
+            notice(`Descartado: ${op.label} (largada correspondente não chegou)`, true)
+          }
+        } else {
+          removeOp(op.id)
+          notice(`${op.label}: ${resp.error?.message ?? 'rejeitado pelo servidor'}`, true)
+        }
+      }
+    } finally {
+      saveQueue()
+      flushing = false
+      syncing = false
+    }
+    if (sent) await pull()
+    emit()
+    // Ações criadas enquanto enviávamos
+    if (online && queue.some((o) => (o.nextTry ?? 0) <= Date.now())) setTimeout(() => void flush(), 300)
+  }
+
+  function enqueue(op: Omit<Op, 'createdAt' | 'attempts'>) {
+    queue = [...queue, { ...op, createdAt: Date.now(), attempts: 0 }]
+    saveQueue()
+    emit()
+    void flush()
+  }
+
+  const who = (num: string) => {
+    const r = server.riders.find((x) => x.num === num)
+    return r ? `#${num} ${r.name}` : `#${num}`
+  }
+
+  // ---- Rotinas em segundo plano ----
+  const reconnect = () => {
+    void flush()
+    void pull()
+    void syncClock()
+  }
+  window.addEventListener('online', reconnect)
+  window.addEventListener('offline', () => setOnline(false))
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') reconnect()
+  })
+  setInterval(() => {
+    if (queue.length > 0) void flush()
+  }, 5000)
+  setInterval(() => {
+    if (queue.length === 0) void pull()
+  }, 15000)
+  setInterval(() => {
+    if (online) void syncClock()
+  }, 30000)
+  reconnect()
+
+  return {
+    mode: 'supabase',
+
+    async load() {
+      return view()
+    },
+
+    subscribe(onChange) {
+      listeners.add(onChange)
+      const channel = sb
+        .channel('mtb-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'runs' }, () => void pull())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'riders' }, () => void pull())
+        .subscribe()
+      return () => {
+        listeners.delete(onChange)
+        void sb.removeChannel(channel)
+      }
+    },
+
+    getClockOffset: () => clockOffset,
+
+    getSync(): SyncStatus {
+      return { online, syncing, pending: queue.length }
+    },
+
+    getPending(): PendingOp[] {
+      return queue.map((o) => ({ id: o.id, label: o.label, at: o.at, attempts: o.attempts }))
+    },
+
+    async syncNow() {
+      queue.forEach((o) => (o.nextTry = undefined))
+      await flush()
+      await pull()
+    },
+
+    discardPending(id) {
+      removeOp(id)
+      saveQueue()
+      emit()
+    },
+
+    onNotice(cb) {
+      noticeListeners.add(cb)
+      return () => noticeListeners.delete(cb)
+    },
+
+    async addRider(rider) {
+      const r = await sb.from('riders').insert({ num: rider.num, name: rider.name, category: rider.cat })
+      if (r.error?.code === '23505') throw new Error(`Número #${rider.num} já existe`)
+      ensure(r)
+      await pull()
+    },
+
+    async removeRider(num) {
+      ensure(await sb.from('riders').delete().eq('num', num))
+      await pull()
+    },
+
+    async startRun(num) {
+      const st = view()
+      const rider = st.riders.find((r) => r.num === num)
+      if (!rider) throw new Error(`Piloto #${num} não cadastrado`)
+      if (st.runs.some((r) => r.num === num && r.status === 'track')) throw new Error(`${rider.name} já está na pista`)
+      const id = crypto.randomUUID()
+      enqueue({ id, kind: 'start', num, at: nowSrv(), label: `Largada · ${who(num)}` })
+      return view().runs.find((r) => r.id === id) ?? null
+    },
+
+    async finishRun(num) {
+      const st = view()
+      const rider = st.riders.find((r) => r.num === num)
+      if (!rider) throw new Error(`Piloto #${num} não cadastrado`)
+      const open = st.runs.find((r) => r.num === num && r.status === 'track')
+      if (!open) {
+        // Com conexão, a informação é recente: não está na pista mesmo.
+        if (online) throw new Error(`${rider.name} não está na pista`)
+        // Sem conexão pode ser que a largada ainda não tenha chegado: guarda e valida depois.
+        if (queue.some((o) => o.kind === 'finish' && o.num === num)) {
+          throw new Error(`Chegada de ${rider.name} já foi guardada`)
+        }
+        notice(`Sem conexão: chegada de ${rider.name} guardada e será validada ao sincronizar.`)
+      }
+      enqueue({ id: crypto.randomUUID(), kind: 'finish', num, at: nowSrv(), label: `Chegada · ${who(num)}` })
+      return open ? (view().runs.find((r) => r.id === open.id) ?? null) : null
+    },
+
+    async dnfRun(id) {
+      const run = view().runs.find((r) => r.id === id)
+      if (!run || run.status !== 'track') return
+      enqueue({ id: crypto.randomUUID(), kind: 'dnf', runId: id, at: nowSrv(), label: `DNF · ${who(run.num)}` })
+    },
+
+    async undoRun(id) {
+      const run = view().runs.find((r) => r.id === id)
+      if (!run) return
+      enqueue({ id: crypto.randomUUID(), kind: 'undo', runId: id, at: nowSrv(), label: `Desfazer · ${who(run.num)}` })
+    },
+
+    async loadDemo() {
+      ensure(await sb.from('riders').upsert(DEMO_RIDERS.map((r) => ({ num: r.num, name: r.name, category: r.cat }))))
+      const t = nowSrv()
+      ensure(
+        await sb.from('runs').insert(
+          DEMO_RIDERS.map((r, i) => ({
+            rider_num: r.num,
+            started_at: new Date(t - 600000 + i * 30000).toISOString(),
+            finished_at: new Date(t - 600000 + i * 30000 + DEMO_TIMES[r.num]).toISOString(),
+            status: 'done',
+          })),
+        ),
+      )
+      await pull()
+    },
+
+    async reset() {
+      ensure(await sb.from('riders').delete().neq('num', ''))
+      queue = []
+      saveQueue()
+      await pull()
+    },
+  }
+}
