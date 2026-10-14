@@ -26,6 +26,8 @@ import {
   Chip,
   Collapse,
   Alert,
+  Checkbox,
+  Tooltip,
   Table,
   TableBody,
   TableCell,
@@ -46,6 +48,7 @@ import FormatListNumberedRoundedIcon from '@mui/icons-material/FormatListNumbere
 import TuneRoundedIcon from '@mui/icons-material/TuneRounded'
 import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded'
 import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded'
+import ShuffleRoundedIcon from '@mui/icons-material/ShuffleRounded'
 
 interface Props {
   state: AppState
@@ -78,6 +81,7 @@ export function Pilotos({ state, act }: Props) {
   const [gridStartTime, setGridStartTime] = useState('09:00')
   const [gridIntervalMinutes, setGridIntervalMinutes] = useState(1)
   const [categoryOrder, setCategoryOrder] = useState<string[]>([])
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([])
   const [gridItems, setGridItems] = useState<StartGridItem[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_GRID_KEY)
@@ -87,7 +91,7 @@ export function Pilotos({ state, act }: Props) {
     }
   })
 
-  // Manter categoryOrder sincronizado com as categorias do estado
+  // Manter categoryOrder e selectedCategories sincronizados com as categorias do estado
   useEffect(() => {
     const cats = state.categories && state.categories.length > 0 ? state.categories : ['Geral']
     setCategoryOrder((prev) => {
@@ -95,7 +99,17 @@ export function Pilotos({ state, act }: Props) {
       const added = cats.filter((c) => !existing.includes(c))
       return [...existing, ...added]
     })
+    setSelectedCategories((prev) => {
+      if (prev.length === 0) return [...cats]
+      return prev.filter((c) => cats.includes(c))
+    })
   }, [state.categories])
+
+  const toggleCategorySelection = (catName: string) => {
+    setSelectedCategories((prev) =>
+      prev.includes(catName) ? prev.filter((c) => c !== catName) : [...prev, catName]
+    )
+  }
 
   const moveCategory = (index: number, direction: 'up' | 'down') => {
     setCategoryOrder((prev) => {
@@ -119,46 +133,15 @@ export function Pilotos({ state, act }: Props) {
     }
   }
 
-  const handleGenerateGrid = () => {
-    if (state.riders.length === 0) {
-      return act(async () => { throw new Error('Cadastre pilotos antes de gerar a grade de largada') })
-    }
-
-    // Agrupar pilotos por categoria
-    const groupedByCat = new Map<string, Rider[]>()
-    state.riders.forEach((r) => {
-      const c = r.cat || 'Sem Categoria'
-      if (!groupedByCat.has(c)) groupedByCat.set(c, [])
-      groupedByCat.get(c)!.push(r)
-    })
-
-    // Montar a lista sequencial na ordem definida das categorias, sorteando internamente em cada uma
-    const orderedRiders: Rider[] = []
-
-    // 1. Categorias ordenadas pelo usuário
-    categoryOrder.forEach((c) => {
-      const list = groupedByCat.get(c)
-      if (list && list.length > 0) {
-        // Embaralha aleatoriamente apenas os atletas desta categoria
-        const shuffled = [...list].sort(() => Math.random() - 0.5)
-        orderedRiders.push(...shuffled)
-        groupedByCat.delete(c)
-      }
-    })
-
-    // 2. Qualquer outra categoria restante (ex: 'Sem Categoria')
-    groupedByCat.forEach((list) => {
-      const shuffled = [...list].sort(() => Math.random() - 0.5)
-      orderedRiders.push(...shuffled)
-    })
-
+  // Recalcula horários sequenciais para uma lista de pilotos a partir do gridStartTime
+  const buildGridWithTimes = (riders: Rider[]): StartGridItem[] => {
     const [hh, mm] = gridStartTime.split(':').map(Number)
     const baseDate = new Date()
     baseDate.setHours(isNaN(hh) ? 9 : hh, isNaN(mm) ? 0 : mm, 0, 0)
     const baseEpoch = baseDate.getTime()
     const intervalMs = Math.round(gridIntervalMinutes * 60 * 1000)
 
-    const items: StartGridItem[] = orderedRiders.map((r, index) => {
+    return riders.map((r, index) => {
       const timeMs = baseEpoch + index * intervalMs
       const date = new Date(timeMs)
       const hours = String(date.getHours()).padStart(2, '0')
@@ -172,8 +155,132 @@ export function Pilotos({ state, act }: Props) {
         scheduledEpoch: timeMs,
       }
     })
+  }
 
+  // Gerar ou atualizar grade com as categorias selecionadas (preservando categorias não selecionadas já presentes na grade)
+  const handleGenerateGrid = () => {
+    if (state.riders.length === 0) {
+      return act(async () => { throw new Error('Cadastre pilotos antes de gerar a grade de largada') })
+    }
+
+    if (selectedCategories.length === 0) {
+      return act(async () => { throw new Error('Selecione pelo menos uma categoria para incluir na grade') })
+    }
+
+    // Pilotos das categorias selecionadas
+    const eligibleRiders = state.riders.filter((r) =>
+      selectedCategories.includes(r.cat || 'Sem Categoria')
+    )
+
+    if (eligibleRiders.length === 0) {
+      return act(async () => { throw new Error('Nenhum piloto encontrado nas categorias selecionadas') })
+    }
+
+    // 1. Manter os pilotos das categorias NÃO selecionadas que já estavam na grade
+    const unselectedGridRiders: Rider[] = []
+    gridItems.forEach((item) => {
+      const r = state.riders.find((rider) => rider.num === item.num)
+      if (r && !selectedCategories.includes(r.cat || 'Sem Categoria')) {
+        unselectedGridRiders.push(r)
+      }
+    })
+
+    // 2. Agrupar os pilotos das categorias selecionadas e embaralhar dentro de cada uma
+    const groupedSelected = new Map<string, Rider[]>()
+    eligibleRiders.forEach((r) => {
+      const c = r.cat || 'Sem Categoria'
+      if (!groupedSelected.has(c)) groupedSelected.set(c, [])
+      groupedSelected.get(c)!.push(r)
+    })
+
+    // Também agrupamos os pilotos não selecionados já existentes por categoria para respeitar a ordem global
+    const groupedUnselected = new Map<string, Rider[]>()
+    unselectedGridRiders.forEach((r) => {
+      const c = r.cat || 'Sem Categoria'
+      if (!groupedUnselected.has(c)) groupedUnselected.set(c, [])
+      groupedUnselected.get(c)!.push(r)
+    })
+
+    // 3. Montar a lista sequencial na ordem definida de categoryOrder
+    const orderedRiders: Rider[] = []
+
+    categoryOrder.forEach((c) => {
+      if (selectedCategories.includes(c)) {
+        const list = groupedSelected.get(c)
+        if (list && list.length > 0) {
+          // Sorteia aleatoriamente os atletas desta categoria selecionada
+          const shuffled = [...list].sort(() => Math.random() - 0.5)
+          orderedRiders.push(...shuffled)
+          groupedSelected.delete(c)
+        }
+      } else {
+        // Mantém os atletas da categoria não selecionada na ordem que já estavam
+        const existingList = groupedUnselected.get(c)
+        if (existingList && existingList.length > 0) {
+          orderedRiders.push(...existingList)
+          groupedUnselected.delete(c)
+        }
+      }
+    })
+
+    // Qualquer outra categoria restante
+    groupedSelected.forEach((list) => {
+      orderedRiders.push(...list.sort(() => Math.random() - 0.5))
+    })
+    groupedUnselected.forEach((list) => {
+      orderedRiders.push(...list)
+    })
+
+    const items = buildGridWithTimes(orderedRiders)
     saveGrid(items)
+  }
+
+  // Sortear ou adicionar apenas UMA categoria individual
+  const handleShuffleSingleCategory = (targetCat: string) => {
+    const categoryRiders = state.riders.filter((r) => (r.cat || 'Sem Categoria') === targetCat)
+    if (categoryRiders.length === 0) {
+      return act(async () => { throw new Error(`Nenhum piloto cadastrado na categoria "${targetCat}"`) })
+    }
+
+    // Embaralha aleatoriamente os pilotos dessa categoria
+    const shuffledCategoryRiders = [...categoryRiders].sort(() => Math.random() - 0.5)
+
+    // Se já existem itens na grade, vamos substituir/atualizar os dessa categoria, ou adicionar ao final
+    const currentRidersInGrid: Rider[] = []
+    const seenNums = new Set<string>()
+
+    // Mapear os atletas atualmente na grade
+    gridItems.forEach((item) => {
+      const rider = state.riders.find((r) => r.num === item.num)
+      if (rider && (rider.cat || 'Sem Categoria') !== targetCat) {
+        currentRidersInGrid.push(rider)
+        seenNums.add(rider.num)
+      }
+    })
+
+    // Determinar a posição de inserção com base no categoryOrder
+    const targetOrderIndex = categoryOrder.indexOf(targetCat)
+    let insertIndex = currentRidersInGrid.length
+
+    for (let i = 0; i < currentRidersInGrid.length; i++) {
+      const c = currentRidersInGrid[i].cat || 'Sem Categoria'
+      const cOrderIndex = categoryOrder.indexOf(c)
+      if (cOrderIndex > targetOrderIndex) {
+        insertIndex = i
+        break
+      }
+    }
+
+    currentRidersInGrid.splice(insertIndex, 0, ...shuffledCategoryRiders)
+
+    // Recalcula todos os horários sequencialmente
+    const newItems = buildGridWithTimes(currentRidersInGrid)
+    saveGrid(newItems)
+
+    // Garante que a categoria fique marcada como selecionada
+    if (!selectedCategories.includes(targetCat)) {
+      setSelectedCategories((prev) => [...prev, targetCat])
+    }
   }
 
   const handleClearGrid = () => {
@@ -942,63 +1049,124 @@ export function Pilotos({ state, act }: Props) {
                   />
                 </Box>
 
-                {/* ORDEM DAS CATEGORIAS */}
+                {/* SELEÇÃO E ORDEM DAS CATEGORIAS */}
                 <Box sx={{ gridColumn: { xs: '1', sm: '1 / -1' } }}>
-                  <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.8, color: 'text.secondary' }}>
-                    Ordem de Largada das Categorias (os atletas serão sorteados aleatoriamente dentro de sua respectiva categoria)
-                  </Typography>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    {categoryOrder.map((c, idx) => (
-                      <Box
-                        key={c}
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          p: 1,
-                          px: 1.5,
-                          borderRadius: 2,
-                          bgcolor: 'background.default',
-                          border: '1px solid rgba(255, 255, 255, 0.08)',
-                        }}
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.8, flexWrap: 'wrap', gap: 1 }}>
+                    <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
+                      Categorias para o Sorteio (marque as que deseja incluir na grade e ordene a sequência de largada):
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => setSelectedCategories([...categoryOrder])}
+                        sx={{ fontSize: '0.68rem', py: 0.2, px: 0.8 }}
                       >
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                          <Chip
-                            label={`${idx + 1}º`}
-                            size="small"
-                            color="primary"
-                            sx={{ fontWeight: 800, height: 20, fontSize: '0.7rem' }}
-                          />
-                          <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                            {c}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            ({state.riders.filter((r) => (r.cat || 'Sem Categoria') === c).length} atletas)
-                          </Typography>
-                        </Box>
+                        Marcar Todas
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="text"
+                        color="inherit"
+                        onClick={() => setSelectedCategories([])}
+                        sx={{ fontSize: '0.68rem', py: 0.2, px: 0.8 }}
+                      >
+                        Desmarcar
+                      </Button>
+                    </Box>
+                  </Box>
 
-                        <Box sx={{ display: 'flex', gap: 0.5 }}>
-                          <IconButton
-                            size="small"
-                            disabled={idx === 0}
-                            onClick={() => moveCategory(idx, 'up')}
-                            title="Mover categoria para cima"
-                            sx={{ p: 0.5, bgcolor: 'rgba(255, 255, 255, 0.04)' }}
-                          >
-                            <ArrowUpwardRoundedIcon fontSize="small" />
-                          </IconButton>
-                          <IconButton
-                            size="small"
-                            disabled={idx === categoryOrder.length - 1}
-                            onClick={() => moveCategory(idx, 'down')}
-                            title="Mover categoria para baixo"
-                            sx={{ p: 0.5, bgcolor: 'rgba(255, 255, 255, 0.04)' }}
-                          >
-                            <ArrowDownwardRoundedIcon fontSize="small" />
-                          </IconButton>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    {categoryOrder.map((c, idx) => {
+                      const isSelected = selectedCategories.includes(c)
+                      const count = state.riders.filter((r) => (r.cat || 'Sem Categoria') === c).length
+                      const inGridCount = gridItems.filter((i) => i.category === c).length
+                      return (
+                        <Box
+                          key={c}
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            p: 0.8,
+                            px: 1.5,
+                            borderRadius: 2,
+                            bgcolor: isSelected ? 'rgba(56, 189, 248, 0.04)' : 'background.default',
+                            border: isSelected ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid rgba(255, 255, 255, 0.06)',
+                            opacity: isSelected ? 1 : 0.6,
+                            transition: 'all 0.2s ease',
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Checkbox
+                              size="small"
+                              checked={isSelected}
+                              onChange={() => toggleCategorySelection(c)}
+                              sx={{ p: 0.5 }}
+                            />
+                            <Chip
+                              label={`${idx + 1}º`}
+                              size="small"
+                              color={isSelected ? 'primary' : 'default'}
+                              sx={{ fontWeight: 800, height: 20, fontSize: '0.7rem' }}
+                            />
+                            <Box>
+                              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                {c}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {count} atletas cadastrados
+                                {inGridCount > 0 && ` · ${inGridCount} na grade`}
+                              </Typography>
+                            </Box>
+                          </Box>
+
+                          <Box sx={{ display: 'flex', gap: 0.8, alignItems: 'center' }}>
+                            {/* BOTÃO PARA SORTEAR SOMENTE ESTA CATEGORIA */}
+                            <Tooltip title={`Sortear apenas a categoria "${c}" agora`}>
+                              <span>
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  color="primary"
+                                  disabled={count === 0}
+                                  onClick={() => handleShuffleSingleCategory(c)}
+                                  startIcon={<ShuffleRoundedIcon sx={{ fontSize: 15 }} />}
+                                  sx={{
+                                    fontSize: '0.7rem',
+                                    fontWeight: 700,
+                                    py: 0.3,
+                                    px: 1,
+                                    borderRadius: 1.5,
+                                  }}
+                                >
+                                  Sortear Só Esta
+                                </Button>
+                              </span>
+                            </Tooltip>
+
+                            <IconButton
+                              size="small"
+                              disabled={idx === 0}
+                              onClick={() => moveCategory(idx, 'up')}
+                              title="Mover categoria para cima"
+                              sx={{ p: 0.5, bgcolor: 'rgba(255, 255, 255, 0.04)' }}
+                            >
+                              <ArrowUpwardRoundedIcon fontSize="small" />
+                            </IconButton>
+                            <IconButton
+                              size="small"
+                              disabled={idx === categoryOrder.length - 1}
+                              onClick={() => moveCategory(idx, 'down')}
+                              title="Mover categoria para baixo"
+                              sx={{ p: 0.5, bgcolor: 'rgba(255, 255, 255, 0.04)' }}
+                            >
+                              <ArrowDownwardRoundedIcon fontSize="small" />
+                            </IconButton>
+                          </Box>
                         </Box>
-                      </Box>
-                    ))}
+                      )
+                    })}
                   </Box>
                 </Box>
               </Box>
@@ -1029,16 +1197,15 @@ export function Pilotos({ state, act }: Props) {
                 )}
               </Box>
 
-              {/* TABELA COM A GRADE GERADA */}
+              {/* TABELA COM A GRADE GERADA (RESPONSIVA, SEM SCROLL LATERAL) */}
               {gridItems.length > 0 && (
-                <TableContainer component={Paper} sx={{ bgcolor: 'background.default', borderRadius: 2, border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                  <Table size="small">
+                <TableContainer component={Paper} sx={{ bgcolor: 'background.default', borderRadius: 2, border: '1px solid rgba(255, 255, 255, 0.06)', overflowX: 'hidden' }}>
+                  <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
                     <TableHead>
                       <TableRow sx={{ bgcolor: 'rgba(255, 255, 255, 0.04)' }}>
-                        <TableCell sx={{ fontWeight: 800, width: 40 }}>ORDEM</TableCell>
-                        <TableCell sx={{ fontWeight: 800 }}>PILOTO</TableCell>
-                        <TableCell sx={{ fontWeight: 800 }}>CATEGORIA</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 800 }}>HORÁRIO PREVISTO</TableCell>
+                        <TableCell sx={{ fontWeight: 800, width: { xs: 52, sm: 64 }, pl: 1.5, pr: 0.5, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>POS</TableCell>
+                        <TableCell sx={{ fontWeight: 800, pl: 1.5, pr: 1, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>PILOTO</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 800, width: { xs: 80, sm: 95 }, pr: 1.5, pl: 1, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>HORÁRIO</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -1049,7 +1216,7 @@ export function Pilotos({ state, act }: Props) {
                             {isFirstOfCategory && (
                               <TableRow sx={{ bgcolor: 'rgba(56, 189, 248, 0.08)' }}>
                                 <TableCell
-                                  colSpan={4}
+                                  colSpan={3}
                                   sx={{
                                     py: 0.8,
                                     px: 1.5,
@@ -1065,17 +1232,25 @@ export function Pilotos({ state, act }: Props) {
                               </TableRow>
                             )}
                             <TableRow sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
-                              <TableCell sx={{ fontWeight: 800, color: 'text.secondary' }}>{idx + 1}º</TableCell>
-                              <TableCell sx={{ fontWeight: 700 }}>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                  <span>{item.riderName}</span>
-                                  <Typography variant="caption" color="text.secondary">#{item.num}</Typography>
+                              <TableCell sx={{ fontWeight: 800, color: 'text.secondary', pl: 1.5, pr: 0.5, fontSize: { xs: '0.85rem', sm: '0.9rem' } }}>
+                                {idx + 1}º
+                              </TableCell>
+                              <TableCell sx={{ pl: 1.5, pr: 1 }}>
+                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.2 }}>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, flexWrap: 'wrap' }}>
+                                    <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                                      {item.riderName}
+                                    </Typography>
+                                    <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>
+                                      #{item.num}
+                                    </Typography>
+                                  </Box>
+                                  <Typography variant="caption" sx={{ color: 'primary.light', fontSize: '0.68rem', display: { xs: 'block', sm: 'none' } }}>
+                                    {item.category}
+                                  </Typography>
                                 </Box>
                               </TableCell>
-                              <TableCell>
-                                <Chip label={item.category} size="small" sx={{ fontSize: '0.68rem', height: 18 }} />
-                              </TableCell>
-                              <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 800, color: 'primary.light' }}>
+                              <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 800, color: 'primary.light', pr: 1.5, pl: 1, fontSize: { xs: '0.85rem', sm: '0.9rem' } }}>
                                 {item.scheduledTimeStr}
                               </TableCell>
                             </TableRow>
