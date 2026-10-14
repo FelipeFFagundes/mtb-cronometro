@@ -8,9 +8,7 @@ import { LiveTimer } from './LiveTimer'
 import {
   Box,
   Card,
-  CardContent,
   Typography,
-  TextField,
   Button,
   Chip,
   Dialog,
@@ -29,7 +27,6 @@ import {
 } from '@mui/material'
 import FlagRoundedIcon from '@mui/icons-material/FlagRounded'
 import WarningRoundedIcon from '@mui/icons-material/WarningRounded'
-import SportsScoreRoundedIcon from '@mui/icons-material/SportsScoreRounded'
 import RouteRoundedIcon from '@mui/icons-material/RouteRounded'
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 
@@ -66,7 +63,6 @@ interface DnfTarget {
 }
 
 export function Chegada({ state, act, online }: Props) {
-  const [num, setNum] = useState('')
   const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget | null>(null)
   const [dnfTarget, setDnfTarget] = useState<DnfTarget | null>(null)
   const [runActionTarget, setRunActionTarget] = useState<RunActionTarget | null>(null)
@@ -74,36 +70,11 @@ export function Chegada({ state, act, online }: Props) {
   const stages = state.stages && state.stages.length > 0 ? state.stages : DEFAULT_STAGES
   const [selectedFilterStage, setSelectedFilterStage] = useState<string>('all')
 
-  const value = num.trim()
-  const rider = state.riders.find((r) => r.num === value)
-  const onTrackRun = state.runs.find((r) => r.num === value && r.status === 'track')
-  const onTrack = Boolean(onTrackRun)
-  const onTrackStage = onTrackRun ? stages.find((s) => s.id === onTrackRun.stageId) : null
-
-  let previewMsg = 'Digite o número ou aperte CHEGOU na lista de atletas na pista'
-  let previewSeverity: 'info' | 'success' | 'error' = 'info'
-  if (value) {
-    if (!rider) {
-      previewMsg = `Piloto #${value} não encontrado`
-      previewSeverity = 'error'
-    } else if (!onTrack && !online) {
-      previewMsg = `${rider.name} · largada não sincronizada (offline), será validada depois`
-      previewSeverity = 'info'
-    } else if (!onTrack) {
-      previewMsg = `${rider.name} não está na pista`
-      previewSeverity = 'error'
-    } else {
-      previewMsg = `${rider.name} · ${rider.cat} (${onTrackStage?.name ?? 'Especial'})`
-      previewSeverity = 'success'
-    }
-  }
-
   // Registra a chegada de fato usando o tempo capturado no 1º clique
   const executeFinish = async (target: ConfirmTarget) => {
     const targetName = target.name
     const stageLabel = target.stageName ? ` (${target.stageName})` : ''
     setConfirmTarget(null)
-    setNum('')
     return act(
       () => api.finishRun(target.num, target.capturedAt, target.stageId).then(() => undefined),
       `🏁 ${targetName} concluiu${stageLabel}! ` +
@@ -144,11 +115,6 @@ export function Chegada({ state, act, online }: Props) {
     const run = state.runs.find((r) => r.id === runId)
     const runStage = run ? stages.find((s) => s.id === run.stageId) : null
     setDnfTarget({ id: runId, num: riderNum, name: rName, stageName: runStage?.name })
-  }
-
-  const submit = () => {
-    if (!value) return act(async () => { throw new Error('Informe o número do piloto') })
-    requestFinish(value)
   }
 
   // Filtra atletas na pista (pode filtrar por especial ou todas)
@@ -531,68 +497,6 @@ export function Chegada({ state, act, online }: Props) {
           </>
         )}
       </Dialog>
-
-      {/* CARD PRINCIPAL DE DISPARO DE CHEGADA */}
-      <Card sx={{ p: { xs: 2, sm: 3 } }}>
-        <CardContent sx={{ p: 0 }}>
-          <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5, fontWeight: 600 }}>
-            NÚMERO DO ATLETA NA CHEGADA
-          </Typography>
-
-          <TextField
-            fullWidth
-            value={num}
-            onChange={(e) => setNum(e.target.value.replace(/\D/g, ''))}
-            onKeyDown={(e) => e.key === 'Enter' && submit()}
-            placeholder="104"
-            slotProps={{
-              htmlInput: {
-                inputMode: 'numeric',
-                pattern: '[0-9]*',
-                style: {
-                  textAlign: 'center',
-                  fontSize: '2.8rem',
-                  fontWeight: 800,
-                  letterSpacing: '0.05em',
-                  padding: '12px 14px',
-                },
-              },
-            }}
-            sx={{ mb: 2 }}
-          />
-
-          <Alert
-            severity={previewSeverity}
-            sx={{
-              mb: 2.5,
-              borderRadius: 2,
-              justifyContent: 'center',
-              fontWeight: 600,
-              fontSize: '1rem',
-            }}
-          >
-            {previewMsg}
-          </Alert>
-
-          <Button
-            fullWidth
-            variant="contained"
-            color="error"
-            size="large"
-            onClick={submit}
-            startIcon={<SportsScoreRoundedIcon sx={{ fontSize: '2.4rem !important' }} />}
-            sx={{
-              py: 2.2,
-              fontSize: '1.6rem',
-              fontWeight: 900,
-              letterSpacing: '0.04em',
-              borderRadius: 3,
-            }}
-          >
-            CHEGOU
-          </Button>
-        </CardContent>
-      </Card>
 
       {/* NA PISTA AGORA */}
       <Box>

@@ -1,34 +1,44 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { api } from '../data'
 import type { Act } from '../App'
-import type { AppState, Rider } from '../types'
+import type { AppState, Rider, Stage } from '../types'
 import { DEFAULT_STAGES } from '../types'
 import { clock } from '../lib/time'
 import {
   Box,
   Card,
-  CardContent,
-  CardActionArea,
   Typography,
   TextField,
   Button,
   Chip,
   Dialog,
+  DialogTitle,
   DialogContent,
+  DialogActions,
   List,
   ListItem,
   ListItemAvatar,
   Avatar,
   ListItemText,
   IconButton,
-  Alert,
   ToggleButton,
   ToggleButtonGroup,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
 } from '@mui/material'
 import UndoRoundedIcon from '@mui/icons-material/UndoRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
 import RouteRoundedIcon from '@mui/icons-material/RouteRounded'
+import AccessTimeRoundedIcon from '@mui/icons-material/AccessTimeRounded'
+import FormatListNumberedRoundedIcon from '@mui/icons-material/FormatListNumberedRounded'
+import TuneRoundedIcon from '@mui/icons-material/TuneRounded'
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 
 interface Props {
   state: AppState
@@ -36,76 +46,64 @@ interface Props {
   online: boolean
 }
 
+export interface StartGridItem {
+  num: string
+  riderName: string
+  category: string
+  scheduledTimeStr: string
+  scheduledEpoch: number
+}
+
+const STORAGE_GRID_KEY = 'mtb_start_grid'
+
 export function Largada({ state, act, online }: Props) {
-  const [num, setNum] = useState('')
-  const [countdownRider, setCountdownRider] = useState<Rider | null>(null)
-  const [count, setCount] = useState<number | 'VAI!'>(3)
-  const timerRef = useRef<number | undefined>(undefined)
-
+  const [activeStageId, setActiveStageId] = useState<string>(() => state.stages?.[0]?.id || 'stage-1')
   const stages = state.stages && state.stages.length > 0 ? state.stages : DEFAULT_STAGES
-  const [activeStageId, setActiveStageId] = useState<string>(() => stages[0]?.id || 'stage-1')
+  const currentStage: Stage = stages.find((s) => s.id === activeStageId) || stages[0]
 
-  const currentStage = stages.find((s) => s.id === activeStageId) || stages[0]
+  // Estado da Contagem Regressiva
+  const [countdownTarget, setCountdownTarget] = useState<{ rider: Rider; stage: Stage } | null>(null)
+  const [count, setCount] = useState<number | 'VAI!'>(3)
 
-  const value = num.trim()
-  const rider = state.riders.find((r) => r.num === value)
-  const onTrack = state.runs.some((r) => r.num === value && r.status === 'track')
-  const runThisStage = state.runs.find(
-    (r) => r.num === value && (r.stageId || stages[0]?.id) === currentStage.id && r.status !== 'track'
-  )
-  const alreadyRanThisStage = Boolean(runThisStage)
+  // Referências para evitar que o useEffect da contagem re-dispare se props ou estados mudarem
+  const actRef = useRef(act)
+  actRef.current = act
+  const onlineRef = useRef(online)
+  onlineRef.current = online
 
-  let previewMsg = `Digite o número ou selecione um piloto para a ${currentStage.name}`
-  let previewSeverity: 'info' | 'success' | 'error' | 'warning' = 'info'
-  if (value) {
-    if (!rider) {
-      previewMsg = `Piloto #${value} não encontrado`
-      previewSeverity = 'error'
-    } else if (!rider.cat || rider.cat === 'Sem Categoria' || rider.cat.trim() === '') {
-      previewMsg = `Piloto #${rider.num} SEM CATEGORIA configurada. Defina a categoria em Atletas antes de largar.`
-      previewSeverity = 'error'
-    } else if (onTrack) {
-      previewMsg = `${rider.name} já está na pista!`
-      previewSeverity = 'error'
-    } else if (alreadyRanThisStage) {
-      previewMsg = `Atenção: ${rider.name} já possui descida (${runThisStage?.status === 'dnf' ? 'DNF' : 'concluída'}) na ${currentStage.name}`
-      previewSeverity = 'warning'
-    } else {
-      previewMsg = `${rider.name} · ${rider.cat}`
-      previewSeverity = 'success'
-    }
-  }
-
-  // Efeito da Contagem Regressiva em Tela Cheia (3, 2, 1, VAI!)
+  // Efeito da Contagem Regressiva (3, 2, 1, VAI!) - Roda estritamente 1 vez por largada
   useEffect(() => {
-    if (!countdownRider) return
+    if (!countdownTarget) return
 
     setCount(3)
     let current = 3
+    let hasFired = false
 
-    timerRef.current = window.setInterval(() => {
+    const interval = window.setInterval(() => {
       current -= 1
       if (current === 0) {
         setCount('VAI!')
-        // Dispara a largada exata no momento do "VAI!"
-        void act(
-          () => api.startRun(countdownRider.num, currentStage.id).then(() => undefined),
-          `🚦 #${countdownRider.num} ${countdownRider.name} largou na ${currentStage.name}!` + (online ? '' : ' (salvo offline)')
-        )
+        if (!hasFired) {
+          hasFired = true
+          const { rider, stage } = countdownTarget
+          void actRef.current(
+            () => api.startRun(rider.num, stage.id).then(() => undefined),
+            `🚦 #${rider.num} ${rider.name} largou na ${stage.name}!` + (onlineRef.current ? '' : ' (salvo offline)')
+          )
+        }
       } else if (current < 0) {
-        clearInterval(timerRef.current)
-        setCountdownRider(null)
+        clearInterval(interval)
+        setCountdownTarget(null)
       } else {
         setCount(current)
       }
     }, 1000)
 
-    return () => clearInterval(timerRef.current)
-  }, [countdownRider, act, online, currentStage])
+    return () => clearInterval(interval)
+  }, [countdownTarget])
 
   const cancelCountdown = () => {
-    clearInterval(timerRef.current)
-    setCountdownRider(null)
+    setCountdownTarget(null)
   }
 
   const startCountdown = (r: Rider) => {
@@ -120,54 +118,130 @@ export function Largada({ state, act, online }: Props) {
     if (state.runs.some((run) => run.num === r.num && (run.stageId || stages[0]?.id) === currentStage.id && run.status !== 'track')) {
       return act(async () => { throw new Error(`${r.name} já possui descida registrada na ${currentStage.name}`) })
     }
-    setNum('')
-    setCountdownRider(r)
+    setCountdownTarget({ rider: r, stage: currentStage })
   }
 
-  const submit = () => {
-    if (!value) return act(async () => { throw new Error('Informe ou selecione um piloto') })
-    if (!rider) return act(async () => { throw new Error(`Piloto #${value} não encontrado`) })
-    if (!rider.cat || rider.cat === 'Sem Categoria' || rider.cat.trim() === '') {
-      return act(async () => {
-        throw new Error(`Piloto #${rider.num} (${rider.name}) está sem categoria configurada. Defina uma categoria antes de largar.`)
-      })
+  // ESTADO DA GRADE DE ORDEM DE LARGADA
+  const [gridItems, setGridItems] = useState<StartGridItem[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_GRID_KEY)
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
     }
-    if (onTrack) return act(async () => { throw new Error(`${rider.name} já está na pista`) })
-    if (alreadyRanThisStage) {
-      return act(async () => { throw new Error(`${rider.name} já possui descida registrada na ${currentStage.name}`) })
+  })
+
+  // Modal de Configuração da Grade
+  const [configOpen, setConfigOpen] = useState(false)
+  const [viewGridOpen, setViewGridOpen] = useState(false)
+  const [startTimeInput, setStartTimeInput] = useState('09:00')
+  const [intervalMinutes, setIntervalMinutes] = useState(1)
+  const [sortBy, setSortBy] = useState<'num' | 'cat' | 'random'>('num')
+
+  // Salvar no localStorage
+  const saveGrid = (items: StartGridItem[]) => {
+    setGridItems(items)
+    try {
+      localStorage.setItem(STORAGE_GRID_KEY, JSON.stringify(items))
+    } catch (e) {
+      console.error('Falha ao salvar grade de largada:', e)
     }
-    startCountdown(rider)
   }
 
-  // Pilotos disponíveis para largar nesta especial (não estão na pista e não concluíram esta especial ainda)
-  const availableRiders = state.riders
-    .filter((r) => {
+  // Gerador da Grade de Ordem de Largada
+  const handleGenerateGrid = () => {
+    if (state.riders.length === 0) return
+
+    let sorted = [...state.riders]
+    if (sortBy === 'num') {
+      sorted.sort((a, b) => Number(a.num) - Number(b.num))
+    } else if (sortBy === 'cat') {
+      sorted.sort((a, b) => a.cat.localeCompare(b.cat) || Number(a.num) - Number(b.num))
+    } else if (sortBy === 'random') {
+      sorted.sort(() => Math.random() - 0.5)
+    }
+
+    const [hh, mm] = startTimeInput.split(':').map(Number)
+    const baseDate = new Date()
+    baseDate.setHours(isNaN(hh) ? 9 : hh, isNaN(mm) ? 0 : mm, 0, 0)
+    const baseEpoch = baseDate.getTime()
+    const intervalMs = Math.round(intervalMinutes * 60 * 1000)
+
+    const items: StartGridItem[] = sorted.map((r, index) => {
+      const timeMs = baseEpoch + index * intervalMs
+      const date = new Date(timeMs)
+      const hours = String(date.getHours()).padStart(2, '0')
+      const minutes = String(date.getMinutes()).padStart(2, '0')
+      const seconds = String(date.getSeconds()).padStart(2, '0')
+      return {
+        num: r.num,
+        riderName: r.name,
+        category: r.cat,
+        scheduledTimeStr: `${hours}:${minutes}:${seconds}`,
+        scheduledEpoch: timeMs,
+      }
+    })
+
+    saveGrid(items)
+    setConfigOpen(false)
+  }
+
+  const handleClearGrid = () => {
+    saveGrid([])
+  }
+
+  // Mapeamento rápido da grade por número do piloto
+  const gridMap = useMemo(() => {
+    const map = new Map<string, { item: StartGridItem; index: number }>()
+    gridItems.forEach((item, index) => {
+      map.set(item.num, { item, index })
+    })
+    return map
+  }, [gridItems])
+
+  // Pilotos disponíveis para largar nesta especial (ordenados pela Grade se existir, ou por número)
+  const availableRiders = useMemo(() => {
+    const list = state.riders.filter((r) => {
       const isCurrentlyOnTrack = state.runs.some((run) => run.num === r.num && run.status === 'track')
       const hasFinishedThisStage = state.runs.some(
         (run) => run.num === r.num && (run.stageId || stages[0]?.id) === currentStage.id && run.status !== 'track'
       )
       return !isCurrentlyOnTrack && !hasFinishedThisStage
     })
-    .sort((a, b) => Number(a.num) - Number(b.num))
+
+    if (gridItems.length > 0) {
+      list.sort((a, b) => {
+        const orderA = gridMap.get(a.num)?.index ?? 999999
+        const orderB = gridMap.get(b.num)?.index ?? 999999
+        return orderA - orderB
+      })
+    } else {
+      list.sort((a, b) => Number(a.num) - Number(b.num))
+    }
+
+    return list
+  }, [state.riders, state.runs, stages, currentStage.id, gridItems, gridMap])
 
   const recent = state.runs.slice().sort((a, b) => b.start - a.start).slice(0, 8)
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+      {/* CABEÇALHO */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
         <Typography variant="h5" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
           🚦 Controle de Largada
         </Typography>
         <Chip
-          label={`${availableRiders.length} prontos`}
+          label={`${availableRiders.length} prontos para largar`}
           size="small"
           color="secondary"
           variant="outlined"
+          sx={{ fontWeight: 700 }}
         />
       </Box>
 
       {/* SELETOR DE ESPECIAL / TRILHA ATIVA NA LARGADA */}
-      <Card sx={{ p: 1.5, bgcolor: 'background.paper' }}>
+      <Card sx={{ p: 1.5, bgcolor: 'background.paper', borderRadius: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
           <RouteRoundedIcon color="primary" sx={{ fontSize: 20 }} />
           <Typography variant="subtitle2" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
@@ -206,10 +280,105 @@ export function Largada({ state, act, online }: Props) {
         </Box>
       </Card>
 
-      {/* MODAL DE CONTAGEM REGRESSIVA EM TELA CHEIA */}
+      {/* PAINEL / BANNER DA GRADE DE ORDEM DE LARGADA */}
+      <Card
+        sx={{
+          p: 2,
+          bgcolor: gridItems.length > 0 ? 'rgba(56, 189, 248, 0.04)' : 'background.paper',
+          border: gridItems.length > 0 ? '1px solid rgba(56, 189, 248, 0.25)' : '1px solid rgba(255, 255, 255, 0.08)',
+          borderRadius: 2.5,
+        }}
+      >
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: { xs: 'flex-start', sm: 'center' },
+            flexDirection: { xs: 'column', sm: 'row' },
+            gap: 1.5,
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Box
+              sx={{
+                width: 42,
+                height: 42,
+                borderRadius: '50%',
+                bgcolor: gridItems.length > 0 ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 255, 255, 0.06)',
+                color: gridItems.length > 0 ? 'primary.main' : 'text.secondary',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <FormatListNumberedRoundedIcon sx={{ fontSize: 24 }} />
+            </Box>
+            <Box>
+              <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                {gridItems.length > 0 ? 'Grade de Ordem de Largada Ativa' : 'Grade de Ordem de Largada'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {gridItems.length > 0
+                  ? `Início: ${gridItems[0]?.scheduledTimeStr} · Intervalo: ${intervalMinutes} min · ${gridItems.length} atletas escalados`
+                  : 'Gere os horários de largada automáticos para os pilotos com espaçamento programado.'}
+              </Typography>
+            </Box>
+          </Box>
+
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', width: { xs: '100%', sm: 'auto' } }}>
+            {gridItems.length > 0 ? (
+              <>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="primary"
+                  onClick={() => setViewGridOpen(true)}
+                  startIcon={<AccessTimeRoundedIcon />}
+                  sx={{ fontWeight: 700, flex: { xs: 1, sm: 'auto' } }}
+                >
+                  Ver Grade
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="inherit"
+                  onClick={() => setConfigOpen(true)}
+                  startIcon={<TuneRoundedIcon />}
+                  sx={{ fontWeight: 700 }}
+                >
+                  Reconfigurar
+                </Button>
+                <IconButton
+                  size="small"
+                  color="error"
+                  onClick={handleClearGrid}
+                  title="Limpar grade"
+                  sx={{ border: '1px solid rgba(239, 68, 68, 0.3)' }}
+                >
+                  <DeleteOutlineRoundedIcon fontSize="small" />
+                </IconButton>
+              </>
+            ) : (
+              <Button
+                variant="contained"
+                color="primary"
+                size="small"
+                onClick={() => setConfigOpen(true)}
+                startIcon={<TuneRoundedIcon />}
+                sx={{ fontWeight: 800, width: { xs: '100%', sm: 'auto' } }}
+              >
+                Gerar Grade de Largada
+              </Button>
+            )}
+          </Box>
+        </Box>
+      </Card>
+
+      {/* MODAL DE CONTAGEM REGRESSIVA EM TELA CHEIA (3, 2, 1, VAI!) */}
       <Dialog
         fullScreen
-        open={Boolean(countdownRider)}
+        open={Boolean(countdownTarget)}
         onClose={cancelCountdown}
         slotProps={{
           paper: {
@@ -230,38 +399,37 @@ export function Largada({ state, act, online }: Props) {
             textAlign: 'center',
           }}
         >
-          {countdownRider && (
+          {countdownTarget && (
             <>
               <Box sx={{ mt: 2 }}>
                 <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', mb: 1.5 }}>
                   <Chip
-                    label={currentStage.name}
+                    label={countdownTarget.stage.name}
                     color="secondary"
                     sx={{ fontWeight: 800 }}
                   />
                   <Chip
-                    label={`CATEGORIA: ${countdownRider.cat}`}
+                    label={`CATEGORIA: ${countdownTarget.rider.cat}`}
                     color="primary"
                     sx={{ fontWeight: 700 }}
                   />
                 </Box>
-                <Typography variant="h2" sx={{ fontWeight: 900, fontSize: { xs: '3.2rem', sm: '4.8rem' } }}>
-                  #{countdownRider.num}
+                <Typography variant="h2" sx={{ fontWeight: 900, fontSize: { xs: '3.5rem', sm: '5rem' } }}>
+                  #{countdownTarget.rider.num}
                 </Typography>
-                <Typography variant="h4" color="text.secondary" sx={{ fontWeight: 600 }}>
-                  {countdownRider.name}
+                <Typography variant="h4" color="text.secondary" sx={{ fontWeight: 700 }}>
+                  {countdownTarget.rider.name}
                 </Typography>
               </Box>
 
               <Box
                 sx={{
-                  fontSize: { xs: '7rem', sm: '12rem' },
+                  fontSize: { xs: '7.5rem', sm: '13rem' },
                   fontWeight: 900,
                   lineHeight: 1,
                   fontFamily: 'monospace',
                   color: count === 'VAI!' ? '#4ade80' : 'primary.main',
-                  textShadow: count === 'VAI!' ? '0 0 40px rgba(74, 222, 128, 0.6)' : 'none',
-                  animation: 'pulse 1s infinite alternate',
+                  textShadow: count === 'VAI!' ? '0 0 50px rgba(74, 222, 128, 0.7)' : 'none',
                 }}
               >
                 {count}
@@ -282,143 +450,335 @@ export function Largada({ state, act, online }: Props) {
         </DialogContent>
       </Dialog>
 
-      {/* CARD PRINCIPAL DE DISPARO */}
-      <Card sx={{ p: { xs: 2, sm: 3 } }}>
-        <CardContent sx={{ p: 0 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
-            <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 600 }}>
-              NÚMERO DO ATLETA
-            </Typography>
-            <Chip
-              label={`Largando na: ${currentStage.name}`}
-              size="small"
-              color="secondary"
-              variant="outlined"
-              sx={{ fontWeight: 700 }}
-            />
-          </Box>
-
-          <TextField
-            fullWidth
-            value={num}
-            onChange={(e) => setNum(e.target.value.replace(/\D/g, ''))}
-            onKeyDown={(e) => e.key === 'Enter' && submit()}
-            placeholder="104"
-            slotProps={{
-              htmlInput: {
-                inputMode: 'numeric',
-                pattern: '[0-9]*',
-                style: {
-                  textAlign: 'center',
-                  fontSize: '2.8rem',
-                  fontWeight: 800,
-                  letterSpacing: '0.05em',
-                  padding: '12px 14px',
-                },
-              },
-            }}
-            sx={{ mb: 2 }}
-          />
-
-          <Alert
-            severity={previewSeverity}
-            sx={{
-              mb: 2.5,
-              borderRadius: 2,
-              justifyContent: 'center',
-              fontWeight: 600,
-              fontSize: '1rem',
-            }}
-          >
-            {previewMsg}
-          </Alert>
-
-          <Button
-            fullWidth
-            variant="contained"
-            color="secondary"
-            size="large"
-            onClick={submit}
-            startIcon={<PlayArrowRoundedIcon sx={{ fontSize: '2.4rem !important' }} />}
-            sx={{
-              py: 2.2,
-              fontSize: '1.6rem',
-              fontWeight: 900,
-              letterSpacing: '0.04em',
-              borderRadius: 3,
-            }}
-          >
-            LARGAR NA {currentStage.name.toUpperCase()}
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* GRID DE PILOTOS PRONTOS PARA LARGAR NA ESPECIAL */}
+      {/* LISTA DE PILOTOS PRONTOS PARA LARGAR */}
       <Box>
-        <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 800, letterSpacing: '0.08em' }}>
-          Prontos para largar na {currentStage.name} ({availableRiders.length})
-        </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+          <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 800, letterSpacing: '0.08em' }}>
+            Pilotos prontos para largar na {currentStage.name} ({availableRiders.length})
+          </Typography>
+          {gridItems.length > 0 && (
+            <Chip
+              label="Ordenado por Grade de Largada"
+              size="small"
+              color="primary"
+              variant="outlined"
+              sx={{ fontSize: '0.68rem', height: 20 }}
+            />
+          )}
+        </Box>
 
         {availableRiders.length === 0 ? (
-          <Card sx={{ p: 3, textAlign: 'center', color: 'text.secondary', mt: 1 }}>
+          <Card sx={{ p: 4, textAlign: 'center', color: 'text.secondary', borderRadius: 2 }}>
             <Typography variant="body2">
               {state.riders.length === 0
-                ? 'Nenhum piloto cadastrado ainda'
-                : `Todos os pilotos já largaram ou estão na pista na ${currentStage.name}`}
+                ? 'Nenhum piloto cadastrado ainda no sistema.'
+                : `Todos os pilotos já largaram ou estão na pista na ${currentStage.name}.`}
             </Typography>
           </Card>
         ) : (
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(3, 1fr)' },
-              gap: 1.5,
-              mt: 1,
-            }}
-          >
-            {availableRiders.map((r) => {
-              const isSelected = value === r.num
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {availableRiders.map((r, index) => {
+              const isNext = index === 0
+              const gridInfo = gridMap.get(r.num)
+
               return (
                 <Card
                   key={r.num}
                   sx={{
-                    border: isSelected ? '2px solid #38bdf8' : '1px solid rgba(255, 255, 255, 0.08)',
-                    bgcolor: isSelected ? 'rgba(56, 189, 248, 0.12)' : 'background.paper',
+                    bgcolor: isNext ? 'rgba(34, 197, 94, 0.05)' : 'background.paper',
+                    border: isNext ? '2px solid rgba(74, 222, 128, 0.5)' : '1px solid rgba(255, 255, 255, 0.08)',
+                    borderRadius: 2.5,
+                    p: { xs: 1.8, sm: 2 },
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 1.5,
                     transition: 'all 0.15s ease',
+                    '&:hover': {
+                      borderColor: isNext ? 'rgba(74, 222, 128, 0.8)' : 'rgba(56, 189, 248, 0.4)',
+                    },
                   }}
                 >
-                  <CardActionArea
-                    onClick={() => setNum(r.num)}
-                    onDoubleClick={() => startCountdown(r)}
-                    sx={{ p: 1.5 }}
-                  >
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-                      <Typography variant="h6" sx={{ fontWeight: 800, color: 'primary.main' }}>
-                        #{r.num}
-                      </Typography>
-                      <Chip
-                        label={!r.cat || r.cat === 'Sem Categoria' ? 'Sem Categoria' : r.cat}
-                        size="small"
-                        color={!r.cat || r.cat === 'Sem Categoria' ? 'error' : 'default'}
-                        variant={!r.cat || r.cat === 'Sem Categoria' ? 'filled' : 'outlined'}
-                        sx={{ fontSize: '0.68rem', height: 20 }}
-                      />
-                    </Box>
-                    <Typography
-                      variant="body2"
-                      noWrap
-                      sx={{ fontWeight: 600, color: 'text.primary' }}
-                      title={r.name}
+                  {/* ESQUERDA: AVATAR NÚMERO, NOME, CATEGORIA E HORÁRIO PREVISTO */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0, flex: 1 }}>
+                    <Avatar
+                      sx={{
+                        width: 44,
+                        height: 44,
+                        fontSize: '1.05rem',
+                        fontWeight: 900,
+                        bgcolor: isNext ? 'rgba(74, 222, 128, 0.2)' : 'rgba(56, 189, 248, 0.12)',
+                        color: isNext ? '#4ade80' : 'primary.main',
+                        border: '1px solid',
+                        borderColor: isNext ? 'rgba(74, 222, 128, 0.4)' : 'rgba(56, 189, 248, 0.3)',
+                        flexShrink: 0,
+                      }}
                     >
-                      {r.name}
-                    </Typography>
-                  </CardActionArea>
+                      #{r.num}
+                    </Avatar>
+
+                    <Box sx={{ minWidth: 0 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                        <Typography variant="body1" noWrap sx={{ fontWeight: 800, fontSize: '1.05rem' }}>
+                          {r.name}
+                        </Typography>
+                        {isNext && (
+                          <Chip
+                            label="PRÓXIMO A LARGAR"
+                            size="small"
+                            color="success"
+                            sx={{ fontWeight: 900, height: 20, fontSize: '0.65rem' }}
+                          />
+                        )}
+                      </Box>
+
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.3, flexWrap: 'wrap' }}>
+                        <Chip
+                          label={r.cat || 'Sem Categoria'}
+                          size="small"
+                          color={!r.cat || r.cat === 'Sem Categoria' ? 'error' : 'default'}
+                          variant={!r.cat || r.cat === 'Sem Categoria' ? 'filled' : 'outlined'}
+                          sx={{ fontSize: '0.68rem', height: 20, fontWeight: 700 }}
+                        />
+
+                        {gridInfo && (
+                          <Chip
+                            icon={<AccessTimeRoundedIcon sx={{ fontSize: '14px !important' }} />}
+                            label={`Previsto: ${gridInfo.item.scheduledTimeStr}`}
+                            size="small"
+                            color="primary"
+                            variant="outlined"
+                            sx={{
+                              fontSize: '0.72rem',
+                              height: 20,
+                              fontWeight: 700,
+                              fontFamily: 'monospace',
+                            }}
+                          />
+                        )}
+                      </Box>
+                    </Box>
+                  </Box>
+
+                  {/* DIREITA: BOTÃO DE LARGADA DIRETA (3s) */}
+                  <Button
+                    variant="contained"
+                    color={isNext ? 'secondary' : 'primary'}
+                    onClick={() => startCountdown(r)}
+                    startIcon={<PlayArrowRoundedIcon sx={{ fontSize: '1.6rem !important' }} />}
+                    sx={{
+                      px: { xs: 2, sm: 3 },
+                      py: 1.2,
+                      fontWeight: 900,
+                      fontSize: { xs: '0.9rem', sm: '1rem' },
+                      borderRadius: 2.5,
+                      flexShrink: 0,
+                    }}
+                  >
+                    LARGAR
+                  </Button>
                 </Card>
               )
             })}
           </Box>
         )}
       </Box>
+
+      {/* MODAL DE CONFIGURAÇÃO DA GRADE DE ORDEM DE LARGADA */}
+      <Dialog
+        open={configOpen}
+        onClose={() => setConfigOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        slotProps={{
+          paper: {
+            sx: {
+              p: 2,
+              borderRadius: 3,
+            },
+          },
+        }}
+      >
+        <DialogTitle sx={{ pb: 1, px: 1 }}>
+          <Typography variant="h6" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <TuneRoundedIcon color="primary" /> Configurar Grade de Largada
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Gera os horários de largada para os {state.riders.length} pilotos cadastrados.
+          </Typography>
+        </DialogTitle>
+
+        <DialogContent sx={{ px: 1, py: 2, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+          {/* HORÁRIO DA PRIMEIRA LARGADA */}
+          <Box>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.8 }}>
+              Horário da 1ª Largada
+            </Typography>
+            <TextField
+              type="time"
+              fullWidth
+              size="small"
+              value={startTimeInput}
+              onChange={(e) => setStartTimeInput(e.target.value)}
+              slotProps={{
+                inputLabel: { shrink: true },
+                htmlInput: { step: 300 },
+              }}
+            />
+          </Box>
+
+          {/* INTERVALO ENTRE PILOTOS (MINUTOS) */}
+          <Box>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.8 }}>
+              Intervalo entre Pilotos
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
+              {[0.5, 1, 2, 3].map((val) => (
+                <Chip
+                  key={val}
+                  label={val === 0.5 ? '30 seg' : `${val} min`}
+                  onClick={() => setIntervalMinutes(val)}
+                  color={intervalMinutes === val ? 'primary' : 'default'}
+                  variant={intervalMinutes === val ? 'filled' : 'outlined'}
+                  sx={{ fontWeight: 700 }}
+                />
+              ))}
+            </Box>
+            <TextField
+              type="number"
+              label="Intervalo personalizado (minutos)"
+              fullWidth
+              size="small"
+              value={intervalMinutes}
+              onChange={(e) => setIntervalMinutes(Math.max(0.1, Number(e.target.value)))}
+              slotProps={{
+                htmlInput: { min: 0.1, step: 0.5 },
+              }}
+            />
+          </Box>
+
+          {/* CRITÉRIO DE ORDENAÇÃO */}
+          <Box>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.8 }}>
+              Critério de Ordenação
+            </Typography>
+            <ToggleButtonGroup
+              value={sortBy}
+              exclusive
+              onChange={(_, val) => val && setSortBy(val)}
+              size="small"
+              fullWidth
+              sx={{
+                '& .MuiToggleButton-root': {
+                  fontWeight: 700,
+                  fontSize: '0.78rem',
+                  py: 0.8,
+                },
+              }}
+            >
+              <ToggleButton value="num">Por Número</ToggleButton>
+              <ToggleButton value="cat">Por Categoria</ToggleButton>
+              <ToggleButton value="random">Sorteio</ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
+
+          {/* PREVIEW DO TEMPO TOTAL DA GRADE */}
+          {state.riders.length > 0 && (
+            <Box sx={{ p: 1.5, bgcolor: 'background.default', borderRadius: 2, border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                Resumo da Prova:
+              </Typography>
+              <Typography variant="body2" sx={{ fontWeight: 700, mt: 0.5 }}>
+                {state.riders.length} pilotos espaçados em {intervalMinutes} min.
+              </Typography>
+              <Typography variant="caption" sx={{ color: 'primary.light', display: 'block', mt: 0.2 }}>
+                1ª largada: {startTimeInput} · Término previsto: {
+                  (() => {
+                    const [hh, mm] = startTimeInput.split(':').map(Number)
+                    const baseDate = new Date()
+                    baseDate.setHours(hh || 9, mm || 0, 0, 0)
+                    const endMs = baseDate.getTime() + (state.riders.length - 1) * intervalMinutes * 60 * 1000
+                    const endDate = new Date(endMs)
+                    return `${String(endDate.getHours()).padStart(2, '0')}:${String(endDate.getMinutes()).padStart(2, '0')}`
+                  })()
+                }
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+
+        <DialogActions sx={{ px: 2, pb: 1, gap: 1 }}>
+          <Button variant="text" color="inherit" onClick={() => setConfigOpen(false)}>
+            Cancelar
+          </Button>
+          <Button variant="contained" color="primary" onClick={handleGenerateGrid} sx={{ fontWeight: 800 }}>
+            Gerar Grade de Largada
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* MODAL DE VISUALIZAÇÃO COMPLETA DA GRADE */}
+      <Dialog
+        open={viewGridOpen}
+        onClose={() => setViewGridOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        slotProps={{
+          paper: {
+            sx: {
+              p: 2,
+              borderRadius: 3,
+            },
+          },
+        }}
+      >
+        <DialogTitle sx={{ pb: 1, px: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <FormatListNumberedRoundedIcon color="primary" /> Ordem Oficial de Largada
+          </Typography>
+          <Chip label={`${gridItems.length} Pilotos`} size="small" color="primary" sx={{ fontWeight: 700 }} />
+        </DialogTitle>
+
+        <DialogContent sx={{ px: 1, py: 1 }}>
+          <TableContainer component={Paper} sx={{ bgcolor: 'background.paper', borderRadius: 2 }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ bgcolor: 'rgba(255, 255, 255, 0.03)' }}>
+                  <TableCell sx={{ fontWeight: 800, width: 40 }}>ORDEM</TableCell>
+                  <TableCell sx={{ fontWeight: 800 }}>PILOTO</TableCell>
+                  <TableCell sx={{ fontWeight: 800 }}>CAT</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 800 }}>HORÁRIO</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {gridItems.map((item, idx) => (
+                  <TableRow key={item.num} sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
+                    <TableCell sx={{ fontWeight: 800, color: 'text.secondary' }}>{idx + 1}º</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <span>{item.riderName}</span>
+                        <Typography variant="caption" color="text.secondary">#{item.num}</Typography>
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Chip label={item.category} size="small" sx={{ fontSize: '0.68rem', height: 18 }} />
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 800, color: 'primary.light' }}>
+                      {item.scheduledTimeStr}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </DialogContent>
+
+        <DialogActions sx={{ px: 2, pb: 1 }}>
+          <Button variant="contained" color="primary" onClick={() => setViewGridOpen(false)} sx={{ fontWeight: 700 }}>
+            Fechar
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* ÚLTIMAS LARGADAS */}
       <Box>
