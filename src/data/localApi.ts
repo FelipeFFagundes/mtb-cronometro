@@ -225,7 +225,7 @@ export function createLocalApi(): Api {
       write({
         riders: [...DEMO_RIDERS],
         runs: [],
-        categories: ['Masculino', 'Feminino'],
+        categories: [...DEFAULT_CATEGORIES],
         stages: [...DEMO_STAGES],
       })
     },

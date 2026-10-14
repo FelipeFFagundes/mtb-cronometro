@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, Fragment } from 'react'
 import { api } from '../data'
 import type { Act } from '../App'
 import type { AppState, Rider, Stage } from '../types'
@@ -526,35 +526,65 @@ export function Largada({ state, act, online }: Props) {
           <Chip label={`${gridItems.length} Pilotos`} size="small" color="primary" sx={{ fontWeight: 700 }} />
         </DialogTitle>
 
-        <DialogContent sx={{ px: 1, py: 1 }}>
-          <TableContainer component={Paper} sx={{ bgcolor: 'background.paper', borderRadius: 2 }}>
-            <Table size="small">
+        <DialogContent sx={{ px: { xs: 0.5, sm: 1 }, py: 1 }}>
+          <TableContainer component={Paper} sx={{ bgcolor: 'background.paper', borderRadius: 2, overflowX: 'hidden' }}>
+            <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
               <TableHead>
                 <TableRow sx={{ bgcolor: 'rgba(255, 255, 255, 0.03)' }}>
-                  <TableCell sx={{ fontWeight: 800, width: 40 }}>ORDEM</TableCell>
-                  <TableCell sx={{ fontWeight: 800 }}>PILOTO</TableCell>
-                  <TableCell sx={{ fontWeight: 800 }}>CAT</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 800 }}>HORÁRIO</TableCell>
+                  <TableCell sx={{ fontWeight: 800, width: { xs: 52, sm: 64 }, pl: 1.5, pr: 0.5, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>POS</TableCell>
+                  <TableCell sx={{ fontWeight: 800, pl: 1.5, pr: 1, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>PILOTO</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 800, width: { xs: 80, sm: 95 }, pr: 1.5, pl: 1, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>HORÁRIO</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {gridItems.map((item, idx) => (
-                  <TableRow key={item.num} sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
-                    <TableCell sx={{ fontWeight: 800, color: 'text.secondary' }}>{idx + 1}º</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <span>{item.riderName}</span>
-                        <Typography variant="caption" color="text.secondary">#{item.num}</Typography>
-                      </Box>
-                    </TableCell>
-                    <TableCell>
-                      <Chip label={item.category} size="small" sx={{ fontSize: '0.68rem', height: 18 }} />
-                    </TableCell>
-                    <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 800, color: 'primary.light' }}>
-                      {item.scheduledTimeStr}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {gridItems.map((item, idx) => {
+                  const isFirstOfCategory = idx === 0 || gridItems[idx - 1].category !== item.category
+                  return (
+                    <Fragment key={item.num}>
+                      {isFirstOfCategory && (
+                        <TableRow sx={{ bgcolor: 'rgba(56, 189, 248, 0.08)' }}>
+                          <TableCell
+                            colSpan={3}
+                            sx={{
+                              py: 0.8,
+                              px: 1.5,
+                              fontWeight: 900,
+                              fontSize: '0.78rem',
+                              letterSpacing: '0.04em',
+                              color: 'primary.main',
+                              borderBottom: '1px solid rgba(56, 189, 248, 0.2)',
+                            }}
+                          >
+                            CATEGORIA: {item.category.toUpperCase()}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      <TableRow sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
+                        <TableCell sx={{ fontWeight: 800, color: 'text.secondary', pl: 1.5, pr: 0.5, fontSize: { xs: '0.85rem', sm: '0.9rem' } }}>
+                          {idx + 1}º
+                        </TableCell>
+                        <TableCell sx={{ pl: 1.5, pr: 1 }}>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.2 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, flexWrap: 'wrap' }}>
+                              <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                                {item.riderName}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>
+                                #{item.num}
+                              </Typography>
+                            </Box>
+                            <Typography variant="caption" sx={{ color: 'primary.light', fontSize: '0.68rem', display: { xs: 'block', sm: 'none' } }}>
+                              {item.category}
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 800, color: 'primary.light', pr: 1.5, pl: 1, fontSize: { xs: '0.85rem', sm: '0.9rem' } }}>
+                          {item.scheduledTimeStr}
+                        </TableCell>
+                      </TableRow>
+                    </Fragment>
+                  )
+                })}
               </TableBody>
             </Table>
           </TableContainer>

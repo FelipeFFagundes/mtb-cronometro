@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect, Fragment } from 'react'
+import type { StartGridItem } from './Largada'
 import type { AppState } from '../types'
 import { buildEnduroRanking } from '../lib/ranking'
 import { fmt } from '../lib/time'
@@ -13,12 +14,30 @@ import {
   Avatar,
   Collapse,
   Divider,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
 } from '@mui/material'
 import EmojiEventsRoundedIcon from '@mui/icons-material/EmojiEventsRounded'
 import FilterListRoundedIcon from '@mui/icons-material/FilterListRounded'
 import RouteRoundedIcon from '@mui/icons-material/RouteRounded'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import TimerRoundedIcon from '@mui/icons-material/TimerRounded'
+import FormatListNumberedRoundedIcon from '@mui/icons-material/FormatListNumberedRounded'
+import AccessTimeRoundedIcon from '@mui/icons-material/AccessTimeRounded'
 
 interface Props {
   state: AppState
@@ -34,6 +53,30 @@ export function EnduroLeaderboard({
   const [cat, setCat] = useState('Todas')
   const [selectedStageId, setSelectedStageId] = useState<string>('all')
   const [expandedNums, setExpandedNums] = useState<Set<string>>(new Set())
+
+  const [viewGridOpen, setViewGridOpen] = useState(false)
+  const [gridItems, setGridItems] = useState<StartGridItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('mtb_start_grid')
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })
+
+  // Sincronizar com a grade gerada na aba Pilotos
+  useEffect(() => {
+    const handleStorage = () => {
+      try {
+        const saved = localStorage.getItem('mtb_start_grid')
+        setGridItems(saved ? JSON.parse(saved) : [])
+      } catch {
+        setGridItems([])
+      }
+    }
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
+  }, [])
 
   const categories = state.categories || []
   const { rows, stages } = buildEnduroRanking(state, cat, selectedStageId)
@@ -116,7 +159,7 @@ export function EnduroLeaderboard({
         </Box>
       </Box>
 
-      {/* FILTRO DE CATEGORIAS E BOTÃO DE EXPANDIR/RECOLHER */}
+      {/* FILTRO DE CATEGORIAS (DROPDOWN) E BOTÃO DE EXPANDIR/RECOLHER */}
       <Box
         sx={{
           display: 'flex',
@@ -126,33 +169,63 @@ export function EnduroLeaderboard({
           gap: 1.5,
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, overflowX: 'auto', maxWidth: '100%', pb: 0.5 }}>
-          <FilterListRoundedIcon sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />
-          <Box sx={{ display: 'flex', gap: 1, '::-webkit-scrollbar': { display: 'none' } }}>
-            {['Todas', ...categories].map((c) => {
-              const isSelected = c === cat
-              return (
-                <Chip
-                  key={c}
-                  label={c}
-                  onClick={() => setCat(c)}
-                  color={isSelected ? 'primary' : 'default'}
-                  variant={isSelected ? 'filled' : 'outlined'}
-                  size="small"
-                  sx={{
-                    fontWeight: 700,
-                    px: 0.5,
-                    bgcolor: isSelected ? 'primary.main' : 'rgba(255, 255, 255, 0.05)',
-                    color: isSelected ? 'primary.contrastText' : 'text.primary',
-                  }}
-                />
-              )
-            })}
-          </Box>
-        </Box>
+        <FormControl
+          size="small"
+          sx={{
+            minWidth: { xs: '100%', sm: 220 },
+            bgcolor: 'background.paper',
+            borderRadius: 2,
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 2,
+              fontWeight: 700,
+              fontSize: '0.85rem',
+            },
+          }}
+        >
+          <InputLabel id="category-filter-select-label" sx={{ fontSize: '0.85rem', fontWeight: 600 }}>
+            Categoria
+          </InputLabel>
+          <Select
+            labelId="category-filter-select-label"
+            id="category-filter-select"
+            value={cat}
+            label="Categoria"
+            onChange={(e) => setCat(e.target.value)}
+            startAdornment={
+              <FilterListRoundedIcon sx={{ fontSize: 18, color: 'primary.main', mr: 1, ml: -0.5 }} />
+            }
+          >
+            <MenuItem value="Todas" sx={{ fontWeight: 700 }}>
+              🏁 Todas as Categorias
+            </MenuItem>
+            {categories.map((c) => (
+              <MenuItem key={c} value={c} sx={{ fontWeight: 600 }}>
+                {c}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
 
-        {rows.length > 0 && (
-          <Box sx={{ display: 'flex', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+          {gridItems.length > 0 && (
+            <Button
+              size="small"
+              variant="outlined"
+              color="primary"
+              onClick={() => setViewGridOpen(true)}
+              startIcon={<AccessTimeRoundedIcon />}
+              sx={{
+                fontWeight: 700,
+                fontSize: '0.78rem',
+                borderRadius: 2,
+                py: 0.5,
+              }}
+            >
+              Grade de Largada
+            </Button>
+          )}
+
+          {rows.length > 0 && (
             <Chip
               label={expandedNums.size === rows.length ? 'Recolher Todos' : 'Expandir Todos'}
               size="small"
@@ -166,8 +239,8 @@ export function EnduroLeaderboard({
                 '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.08)' },
               }}
             />
-          </Box>
-        )}
+          )}
+        </Box>
       </Box>
 
       {/* LISTA DE CARDS EXPANSÍVEIS (WEB E MOBILE) */}
@@ -681,6 +754,99 @@ export function EnduroLeaderboard({
           sx={{ fontSize: '0.72rem' }}
         />
       </Box>
+
+      {/* MODAL DE VISUALIZAÇÃO DA GRADE DE LARGADA */}
+      <Dialog
+        open={viewGridOpen}
+        onClose={() => setViewGridOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        slotProps={{
+          paper: {
+            sx: {
+              p: 2,
+              borderRadius: 3,
+            },
+          },
+        }}
+      >
+        <DialogTitle sx={{ pb: 1, px: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <FormatListNumberedRoundedIcon color="primary" /> Ordem Oficial de Largada
+          </Typography>
+          <Chip label={`${gridItems.length} Pilotos`} size="small" color="primary" sx={{ fontWeight: 700 }} />
+        </DialogTitle>
+
+        <DialogContent sx={{ px: { xs: 0.5, sm: 1 }, py: 1 }}>
+          <TableContainer component={Paper} sx={{ bgcolor: 'background.paper', borderRadius: 2, overflowX: 'hidden' }}>
+            <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
+              <TableHead>
+                <TableRow sx={{ bgcolor: 'rgba(255, 255, 255, 0.03)' }}>
+                  <TableCell sx={{ fontWeight: 800, width: { xs: 52, sm: 64 }, pl: 1.5, pr: 0.5, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>POS</TableCell>
+                  <TableCell sx={{ fontWeight: 800, pl: 1.5, pr: 1, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>PILOTO</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 800, width: { xs: 80, sm: 95 }, pr: 1.5, pl: 1, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>HORÁRIO</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {gridItems.map((item, idx) => {
+                  const isFirstOfCategory = idx === 0 || gridItems[idx - 1].category !== item.category
+                  return (
+                    <Fragment key={item.num}>
+                      {isFirstOfCategory && (
+                        <TableRow sx={{ bgcolor: 'rgba(56, 189, 248, 0.08)' }}>
+                          <TableCell
+                            colSpan={3}
+                            sx={{
+                              py: 0.8,
+                              px: 1.5,
+                              fontWeight: 900,
+                              fontSize: '0.78rem',
+                              letterSpacing: '0.04em',
+                              color: 'primary.main',
+                              borderBottom: '1px solid rgba(56, 189, 248, 0.2)',
+                            }}
+                          >
+                            CATEGORIA: {item.category.toUpperCase()}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      <TableRow sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
+                        <TableCell sx={{ fontWeight: 800, color: 'text.secondary', pl: 1.5, pr: 0.5, fontSize: { xs: '0.85rem', sm: '0.9rem' } }}>
+                          {idx + 1}º
+                        </TableCell>
+                        <TableCell sx={{ pl: 1.5, pr: 1 }}>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.2 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, flexWrap: 'wrap' }}>
+                              <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                                {item.riderName}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>
+                                #{item.num}
+                              </Typography>
+                            </Box>
+                            <Typography variant="caption" sx={{ color: 'primary.light', fontSize: '0.68rem', display: { xs: 'block', sm: 'none' } }}>
+                              {item.category}
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 800, color: 'primary.light', pr: 1.5, pl: 1, fontSize: { xs: '0.85rem', sm: '0.9rem' } }}>
+                          {item.scheduledTimeStr}
+                        </TableCell>
+                      </TableRow>
+                    </Fragment>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </DialogContent>
+
+        <DialogActions sx={{ px: 2, pb: 1 }}>
+          <Button variant="contained" color="primary" onClick={() => setViewGridOpen(false)} sx={{ fontWeight: 700 }}>
+            Fechar
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

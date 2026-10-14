@@ -551,7 +551,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       await sb.from('runs').delete().neq('id', '')
       ensure(await sb.from('riders').upsert(DEMO_RIDERS.map((r) => ({ num: r.num, name: r.name, category: r.cat }))))
       server.stages = [...DEMO_STAGES]
-      server.categories = ['Masculino', 'Feminino']
+      server.categories = [...DEFAULT_CATEGORIES]
       writeJson(CACHE_KEY, server)
       await pull()
     },

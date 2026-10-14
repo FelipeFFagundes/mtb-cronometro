@@ -1,4 +1,4 @@
-export const DEFAULT_CATEGORIES = ['Elite', 'Master', 'Sport', 'Feminino', 'Iniciante']
+export const DEFAULT_CATEGORIES = ['Elite Masculina', 'Elite Feminina', 'E-Bike']
 
 export interface Stage {
   id: string

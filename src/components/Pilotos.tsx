@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useState, useEffect, Fragment, type FormEvent } from 'react'
 import { api } from '../data'
 import type { Act } from '../App'
 import type { AppState, Rider } from '../types'
@@ -26,8 +26,6 @@ import {
   Chip,
   Collapse,
   Alert,
-  ToggleButton,
-  ToggleButtonGroup,
   Table,
   TableBody,
   TableCell,
@@ -46,6 +44,8 @@ import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import RouteRoundedIcon from '@mui/icons-material/RouteRounded'
 import FormatListNumberedRoundedIcon from '@mui/icons-material/FormatListNumberedRounded'
 import TuneRoundedIcon from '@mui/icons-material/TuneRounded'
+import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded'
+import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded'
 
 interface Props {
   state: AppState
@@ -77,7 +77,7 @@ export function Pilotos({ state, act }: Props) {
   const [showGridManager, setShowGridManager] = useState(false)
   const [gridStartTime, setGridStartTime] = useState('09:00')
   const [gridIntervalMinutes, setGridIntervalMinutes] = useState(1)
-  const [gridSortBy, setGridSortBy] = useState<'num' | 'cat' | 'random'>('num')
+  const [categoryOrder, setCategoryOrder] = useState<string[]>([])
   const [gridItems, setGridItems] = useState<StartGridItem[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_GRID_KEY)
@@ -86,6 +86,28 @@ export function Pilotos({ state, act }: Props) {
       return []
     }
   })
+
+  // Manter categoryOrder sincronizado com as categorias do estado
+  useEffect(() => {
+    const cats = state.categories && state.categories.length > 0 ? state.categories : ['Geral']
+    setCategoryOrder((prev) => {
+      const existing = prev.filter((c) => cats.includes(c))
+      const added = cats.filter((c) => !existing.includes(c))
+      return [...existing, ...added]
+    })
+  }, [state.categories])
+
+  const moveCategory = (index: number, direction: 'up' | 'down') => {
+    setCategoryOrder((prev) => {
+      const targetIndex = direction === 'up' ? index - 1 : index + 1
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev
+      const next = [...prev]
+      const temp = next[index]
+      next[index] = next[targetIndex]
+      next[targetIndex] = temp
+      return next
+    })
+  }
 
   const saveGrid = (items: StartGridItem[]) => {
     setGridItems(items)
@@ -102,14 +124,33 @@ export function Pilotos({ state, act }: Props) {
       return act(async () => { throw new Error('Cadastre pilotos antes de gerar a grade de largada') })
     }
 
-    let sorted = [...state.riders]
-    if (gridSortBy === 'num') {
-      sorted.sort((a, b) => Number(a.num) - Number(b.num))
-    } else if (gridSortBy === 'cat') {
-      sorted.sort((a, b) => a.cat.localeCompare(b.cat) || Number(a.num) - Number(b.num))
-    } else if (gridSortBy === 'random') {
-      sorted.sort(() => Math.random() - 0.5)
-    }
+    // Agrupar pilotos por categoria
+    const groupedByCat = new Map<string, Rider[]>()
+    state.riders.forEach((r) => {
+      const c = r.cat || 'Sem Categoria'
+      if (!groupedByCat.has(c)) groupedByCat.set(c, [])
+      groupedByCat.get(c)!.push(r)
+    })
+
+    // Montar a lista sequencial na ordem definida das categorias, sorteando internamente em cada uma
+    const orderedRiders: Rider[] = []
+
+    // 1. Categorias ordenadas pelo usuário
+    categoryOrder.forEach((c) => {
+      const list = groupedByCat.get(c)
+      if (list && list.length > 0) {
+        // Embaralha aleatoriamente apenas os atletas desta categoria
+        const shuffled = [...list].sort(() => Math.random() - 0.5)
+        orderedRiders.push(...shuffled)
+        groupedByCat.delete(c)
+      }
+    })
+
+    // 2. Qualquer outra categoria restante (ex: 'Sem Categoria')
+    groupedByCat.forEach((list) => {
+      const shuffled = [...list].sort(() => Math.random() - 0.5)
+      orderedRiders.push(...shuffled)
+    })
 
     const [hh, mm] = gridStartTime.split(':').map(Number)
     const baseDate = new Date()
@@ -117,7 +158,7 @@ export function Pilotos({ state, act }: Props) {
     const baseEpoch = baseDate.getTime()
     const intervalMs = Math.round(gridIntervalMinutes * 60 * 1000)
 
-    const items: StartGridItem[] = sorted.map((r, index) => {
+    const items: StartGridItem[] = orderedRiders.map((r, index) => {
       const timeMs = baseEpoch + index * intervalMs
       const date = new Date(timeMs)
       const hours = String(date.getHours()).padStart(2, '0')
@@ -901,29 +942,64 @@ export function Pilotos({ state, act }: Props) {
                   />
                 </Box>
 
-                {/* CRITÉRIO DE ORDENAÇÃO */}
-                <Box>
-                  <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5, color: 'text.secondary' }}>
-                    Ordenação dos Atletas
+                {/* ORDEM DAS CATEGORIAS */}
+                <Box sx={{ gridColumn: { xs: '1', sm: '1 / -1' } }}>
+                  <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.8, color: 'text.secondary' }}>
+                    Ordem de Largada das Categorias (os atletas serão sorteados aleatoriamente dentro de sua respectiva categoria)
                   </Typography>
-                  <ToggleButtonGroup
-                    value={gridSortBy}
-                    exclusive
-                    onChange={(_, val) => val && setGridSortBy(val)}
-                    size="small"
-                    fullWidth
-                    sx={{
-                      '& .MuiToggleButton-root': {
-                        fontWeight: 700,
-                        fontSize: '0.72rem',
-                        py: 0.6,
-                      },
-                    }}
-                  >
-                    <ToggleButton value="num">Número</ToggleButton>
-                    <ToggleButton value="cat">Categoria</ToggleButton>
-                    <ToggleButton value="random">Sorteio</ToggleButton>
-                  </ToggleButtonGroup>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    {categoryOrder.map((c, idx) => (
+                      <Box
+                        key={c}
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          p: 1,
+                          px: 1.5,
+                          borderRadius: 2,
+                          bgcolor: 'background.default',
+                          border: '1px solid rgba(255, 255, 255, 0.08)',
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                          <Chip
+                            label={`${idx + 1}º`}
+                            size="small"
+                            color="primary"
+                            sx={{ fontWeight: 800, height: 20, fontSize: '0.7rem' }}
+                          />
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                            {c}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            ({state.riders.filter((r) => (r.cat || 'Sem Categoria') === c).length} atletas)
+                          </Typography>
+                        </Box>
+
+                        <Box sx={{ display: 'flex', gap: 0.5 }}>
+                          <IconButton
+                            size="small"
+                            disabled={idx === 0}
+                            onClick={() => moveCategory(idx, 'up')}
+                            title="Mover categoria para cima"
+                            sx={{ p: 0.5, bgcolor: 'rgba(255, 255, 255, 0.04)' }}
+                          >
+                            <ArrowUpwardRoundedIcon fontSize="small" />
+                          </IconButton>
+                          <IconButton
+                            size="small"
+                            disabled={idx === categoryOrder.length - 1}
+                            onClick={() => moveCategory(idx, 'down')}
+                            title="Mover categoria para baixo"
+                            sx={{ p: 0.5, bgcolor: 'rgba(255, 255, 255, 0.04)' }}
+                          >
+                            <ArrowDownwardRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      </Box>
+                    ))}
+                  </Box>
                 </Box>
               </Box>
 
@@ -966,23 +1042,46 @@ export function Pilotos({ state, act }: Props) {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {gridItems.map((item, idx) => (
-                        <TableRow key={item.num} sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
-                          <TableCell sx={{ fontWeight: 800, color: 'text.secondary' }}>{idx + 1}º</TableCell>
-                          <TableCell sx={{ fontWeight: 700 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <span>{item.riderName}</span>
-                              <Typography variant="caption" color="text.secondary">#{item.num}</Typography>
-                            </Box>
-                          </TableCell>
-                          <TableCell>
-                            <Chip label={item.category} size="small" sx={{ fontSize: '0.68rem', height: 18 }} />
-                          </TableCell>
-                          <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 800, color: 'primary.light' }}>
-                            {item.scheduledTimeStr}
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {gridItems.map((item, idx) => {
+                        const isFirstOfCategory = idx === 0 || gridItems[idx - 1].category !== item.category
+                        return (
+                          <Fragment key={item.num}>
+                            {isFirstOfCategory && (
+                              <TableRow sx={{ bgcolor: 'rgba(56, 189, 248, 0.08)' }}>
+                                <TableCell
+                                  colSpan={4}
+                                  sx={{
+                                    py: 0.8,
+                                    px: 1.5,
+                                    fontWeight: 900,
+                                    fontSize: '0.78rem',
+                                    letterSpacing: '0.04em',
+                                    color: 'primary.main',
+                                    borderBottom: '1px solid rgba(56, 189, 248, 0.2)',
+                                  }}
+                                >
+                                  CATEGORIA: {item.category.toUpperCase()}
+                                </TableCell>
+                              </TableRow>
+                            )}
+                            <TableRow sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
+                              <TableCell sx={{ fontWeight: 800, color: 'text.secondary' }}>{idx + 1}º</TableCell>
+                              <TableCell sx={{ fontWeight: 700 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <span>{item.riderName}</span>
+                                  <Typography variant="caption" color="text.secondary">#{item.num}</Typography>
+                                </Box>
+                              </TableCell>
+                              <TableCell>
+                                <Chip label={item.category} size="small" sx={{ fontSize: '0.68rem', height: 18 }} />
+                              </TableCell>
+                              <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 800, color: 'primary.light' }}>
+                                {item.scheduledTimeStr}
+                              </TableCell>
+                            </TableRow>
+                          </Fragment>
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 </TableContainer>

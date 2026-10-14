@@ -8,19 +8,19 @@ export const DEMO_STAGES: Stage[] = [
 
 /**
  * Atletas de demonstração:
- * - Top 3 Masculino: Loïc Bruni, Troy Brosnan, Amaury Pierron
- * - Top 3 Feminino: Valentina Höll, Lisa Baumann, Harriet Harnden
+ * - Top 3 Masculino: Loïc Bruni, Troy Brosnan, Amaury Pierron (Elite Masculina)
+ * - Top 3 Feminino: Valentina Höll, Lisa Baumann, Harriet Harnden (Elite Feminina)
  */
 export const DEMO_RIDERS: Rider[] = [
   // Top 3 Masculino
-  { num: '1', name: 'Loïc Bruni', cat: 'Masculino' },
-  { num: '2', name: 'Troy Brosnan', cat: 'Masculino' },
-  { num: '3', name: 'Amaury Pierron', cat: 'Masculino' },
+  { num: '1', name: 'Loïc Bruni', cat: 'Elite Masculina' },
+  { num: '2', name: 'Troy Brosnan', cat: 'Elite Masculina' },
+  { num: '3', name: 'Amaury Pierron', cat: 'Elite Masculina' },
 
   // Top 3 Feminino
-  { num: '11', name: 'Valentina Höll', cat: 'Feminino' },
-  { num: '12', name: 'Lisa Baumann', cat: 'Feminino' },
-  { num: '13', name: 'Harriet Harnden', cat: 'Feminino' },
+  { num: '11', name: 'Valentina Höll', cat: 'Elite Feminina' },
+  { num: '12', name: 'Lisa Baumann', cat: 'Elite Feminina' },
+  { num: '13', name: 'Harriet Harnden', cat: 'Elite Feminina' },
 ]
 
 /** Tempos de descida (ms) por atleta para cada especial */

@@ -33,6 +33,19 @@ export function PublicView({ state }: { state: AppState }) {
     }
   }
 
+  const handleScroll = () => {
+    const el = carouselRef.current
+    if (!el) return
+    const scrollLeft = el.scrollLeft
+    const width = el.clientWidth
+    if (width > 0) {
+      const newIdx = Math.round(scrollLeft / width)
+      if (newIdx !== activeIdx && newIdx >= 0 && newIdx < onTrack.length) {
+        setActiveIdx(newIdx)
+      }
+    }
+  }
+
   const handlePrev = () => {
     if (currentIdx > 0) scrollTo(currentIdx - 1)
   }
@@ -123,6 +136,7 @@ export function PublicView({ state }: { state: AppState }) {
             /* CARROSSEL HORIZONTAL COM TAMANHO FIXO DE 1 CARD */
             <Box
               ref={carouselRef}
+              onScroll={handleScroll}
               sx={{
                 display: 'flex',
                 overflowX: 'auto',
