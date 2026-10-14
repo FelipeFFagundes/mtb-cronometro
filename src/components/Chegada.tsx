@@ -177,8 +177,8 @@ export function Chegada({ state, act, online }: Props) {
       <div className="card">
         <label htmlFor="finishNum">Número do piloto</label>
         <input
-          id="finishNum" type="text" inputMode="numeric" autoComplete="off" placeholder="Ex: 104"
-          value={num} onChange={(e) => setNum(e.target.value)}
+          id="finishNum" type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" placeholder="Ex: 104"
+          value={num} onChange={(e) => setNum(e.target.value.replace(/\D/g, ''))}
           onKeyDown={(e) => e.key === 'Enter' && submit()}
         />
         <div className={cls}>{preview}</div>

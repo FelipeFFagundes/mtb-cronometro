@@ -368,9 +368,9 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
 
       // Tenta inserir na tabela categories
       const { error } = await sb.from('categories').insert({ name: trimmed })
-      if (error && error.code !== '42P01') { // 42P01 = tabela não existe ainda
+      if (error && error.code !== '42P01' && error.code !== 'PGRST205') {
         ensure({ error, status: 400 })
-      } else if (error && error.code === '42P01') {
+      } else if (error && (error.code === '42P01' || error.code === 'PGRST205')) {
         // Fallback local caso tabela categories ainda não tenha sido criada no Supabase
         server.categories.push(trimmed)
         writeJson(CACHE_KEY, server)
@@ -385,9 +385,9 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       }
 
       const { error } = await sb.from('categories').delete().eq('name', name)
-      if (error && error.code !== '42P01') {
+      if (error && error.code !== '42P01' && error.code !== 'PGRST205') {
         ensure({ error, status: 400 })
-      } else if (error && error.code === '42P01') {
+      } else if (error && (error.code === '42P01' || error.code === 'PGRST205')) {
         server.categories = server.categories.filter((c) => c !== name)
         writeJson(CACHE_KEY, server)
         emit()
@@ -398,6 +398,17 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     async addRider(rider) {
       const r = await sb.from('riders').insert({ num: rider.num, name: rider.name, category: rider.cat })
       if (r.error?.code === '23505') throw new Error(`Número #${rider.num} já existe`)
+      ensure(r)
+      await pull()
+    },
+
+    async updateRider(oldNum, updated) {
+      const r = await sb
+        .from('riders')
+        .update({ num: updated.num, name: updated.name, category: updated.cat })
+        .eq('num', oldNum)
+
+      if (r.error?.code === '23505') throw new Error(`Número #${updated.num} já está em uso por outro piloto`)
       ensure(r)
       await pull()
     },

@@ -87,6 +87,23 @@ export function createLocalApi(): Api {
       write(s)
     },
 
+    async updateRider(oldNum, updated) {
+      const s = read()
+      const index = s.riders.findIndex((r) => r.num === oldNum)
+      if (index === -1) throw new Error(`Piloto #${oldNum} não encontrado`)
+
+      if (updated.num !== oldNum && s.riders.some((r) => r.num === updated.num)) {
+        throw new Error(`Número #${updated.num} já está em uso por outro piloto`)
+      }
+
+      s.riders[index] = updated
+      // Atualiza em cascata o número do piloto nas descidas se mudou
+      if (updated.num !== oldNum) {
+        s.runs = s.runs.map((run) => (run.num === oldNum ? { ...run, num: updated.num } : run))
+      }
+      write(s)
+    },
+
     async removeRider(num) {
       const s = read()
       s.riders = s.riders.filter((r) => r.num !== num)

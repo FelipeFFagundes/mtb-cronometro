@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { api } from '../data'
 import type { Act } from '../App'
-import type { AppState } from '../types'
+import type { AppState, Rider } from '../types'
 
 interface Props {
   state: AppState
@@ -14,6 +14,9 @@ export function Pilotos({ state, act }: Props) {
   const [newCat, setNewCat] = useState('')
   const [showCatManager, setShowCatManager] = useState(false)
 
+  // Estado para piloto em edição (modal ou formulário de edição)
+  const [editingRider, setEditingRider] = useState<{ originalNum: string; num: string; name: string; cat: string } | null>(null)
+
   const categories = state.categories && state.categories.length > 0 ? state.categories : ['Geral']
   const [cat, setCat] = useState<string>(categories[0] || 'Geral')
 
@@ -24,6 +27,34 @@ export function Pilotos({ state, act }: Props) {
     e.preventDefault()
     const ok = await act(() => api.addRider({ num: num.trim(), name: name.trim(), cat: activeCat }), 'Piloto adicionado')
     if (ok) { setNum(''); setName('') }
+  }
+
+  const startEdit = (r: Rider) => {
+    setEditingRider({
+      originalNum: r.num,
+      num: r.num,
+      name: r.name,
+      cat: r.cat,
+    })
+  }
+
+  const saveEdit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!editingRider) return
+
+    const trimmedNum = editingRider.num.trim()
+    const trimmedName = editingRider.name.trim()
+
+    if (!trimmedNum) return act(async () => { throw new Error('O número do piloto é obrigatório') })
+    if (!trimmedName) return act(async () => { throw new Error('O nome do piloto é obrigatório') })
+
+    const ok = await act(
+      () => api.updateRider(editingRider.originalNum, { num: trimmedNum, name: trimmedName, cat: editingRider.cat }),
+      `Piloto #${trimmedNum} atualizado!`
+    )
+    if (ok) {
+      setEditingRider(null)
+    }
   }
 
   const submitCategory = async (e: FormEvent) => {
@@ -47,6 +78,82 @@ export function Pilotos({ state, act }: Props) {
   return (
     <section>
       <h2>Pilotos & Categorias</h2>
+
+      {/* MODAL DE EDIÇÃO DO PILOTO */}
+      {editingRider && (
+        <div className="confirm-overlay">
+          <div className="confirm-modal card" style={{ maxWidth: 440, textAlign: 'left' }}>
+            <h3 style={{ margin: '0 0 14px', fontSize: 20 }}>Editar Piloto #{editingRider.originalNum}</h3>
+
+            <form onSubmit={(e) => void saveEdit(e)}>
+              <div className="row" style={{ marginBottom: 12 }}>
+                <div>
+                  <label htmlFor="editNum">Nº</label>
+                  <input
+                    id="editNum"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    required
+                    placeholder="104"
+                    value={editingRider.num}
+                    onChange={(e) => {
+                      const numeric = e.target.value.replace(/\D/g, '')
+                      setEditingRider({ ...editingRider, num: numeric })
+                    }}
+                  />
+                </div>
+                <div className="grow">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <label htmlFor="editName">Nome</label>
+                    <span style={{ fontSize: 11, color: editingRider.name.length >= 35 ? 'var(--amber)' : 'var(--muted)' }}>
+                      {editingRider.name.length}/35
+                    </span>
+                  </div>
+                  <input
+                    id="editName"
+                    type="text"
+                    required
+                    maxLength={35}
+                    value={editingRider.name}
+                    onChange={(e) => setEditingRider({ ...editingRider, name: e.target.value.slice(0, 35) })}
+                  />
+                </div>
+              </div>
+
+              <label htmlFor="editCat">Categoria</label>
+              <select
+                id="editCat"
+                value={editingRider.cat}
+                onChange={(e) => setEditingRider({ ...editingRider, cat: e.target.value })}
+                style={{ marginBottom: 20 }}
+              >
+                {categories.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ flex: 1, marginTop: 0 }}
+                  onClick={() => setEditingRider(null)}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ flex: 1.2, marginTop: 0 }}
+                >
+                  Salvar Alterações
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Gerenciador de Categorias (Expansível) */}
       <div className="card" style={{ marginBottom: 16 }}>
@@ -106,11 +213,36 @@ export function Pilotos({ state, act }: Props) {
         <div className="row">
           <div>
             <label htmlFor="rNum">Nº</label>
-            <input id="rNum" type="text" inputMode="numeric" required placeholder="104" value={num} onChange={(e) => setNum(e.target.value)} />
+            <input
+              id="rNum"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              required
+              placeholder="104"
+              value={num}
+              onChange={(e) => {
+                const numeric = e.target.value.replace(/\D/g, '')
+                setNum(numeric)
+              }}
+            />
           </div>
           <div className="grow">
-            <label htmlFor="rName">Nome</label>
-            <input id="rName" type="text" required placeholder="Lucas Silva" value={name} onChange={(e) => setName(e.target.value)} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <label htmlFor="rName">Nome</label>
+              <span style={{ fontSize: 11, color: name.length >= 35 ? 'var(--amber)' : 'var(--muted)' }}>
+                {name.length}/35
+              </span>
+            </div>
+            <input
+              id="rName"
+              type="text"
+              required
+              maxLength={35}
+              placeholder="Lucas Silva"
+              value={name}
+              onChange={(e) => setName(e.target.value.slice(0, 35))}
+            />
           </div>
         </div>
         <label htmlFor="rCat">Categoria</label>
@@ -130,7 +262,23 @@ export function Pilotos({ state, act }: Props) {
               <div className="name">{r.name}</div>
               <div className="sub">{r.cat}</div>
             </div>
-            <button className="mini danger" onClick={() => void act(() => api.removeRider(r.num))}>Remover</button>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button 
+                type="button" 
+                className="mini" 
+                onClick={() => startEdit(r)}
+                style={{ background: 'var(--panel-2)' }}
+              >
+                ✏️ Editar
+              </button>
+              <button 
+                type="button" 
+                className="mini danger" 
+                onClick={() => void act(() => api.removeRider(r.num))}
+              >
+                Remover
+              </button>
+            </div>
           </li>
         ))}
       </ul>
