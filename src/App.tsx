@@ -5,28 +5,32 @@ import { Largada } from './components/Largada'
 import { Chegada } from './components/Chegada'
 import { Ranking } from './components/Ranking'
 import { Pilotos } from './components/Pilotos'
+import { PublicView } from './components/PublicView'
 import { SyncBanner } from './components/SyncBanner'
+import { AdminLogin } from './components/AdminLogin'
 
-type View = 'largada' | 'chegada' | 'ranking' | 'pilotos'
+type AdminTab = 'largada' | 'chegada' | 'ranking' | 'pilotos'
 
-const TABS: { id: View; icon: string; label: string }[] = [
+const ADMIN_TABS: { id: AdminTab; icon: string; label: string }[] = [
   { id: 'largada', icon: '🚦', label: 'Largada' },
   { id: 'chegada', icon: '🏁', label: 'Chegada' },
   { id: 'ranking', icon: '🏆', label: 'Ranking' },
   { id: 'pilotos', icon: '👥', label: 'Pilotos' },
 ]
 
+const AUTH_KEY = 'mtb-admin-auth-v1'
+
 /** Executa uma ação, mostra toast de sucesso/erro e devolve se deu certo. */
 export type Act = (fn: () => Promise<unknown>, okMsg?: string) => Promise<boolean>
 
-function initialView(): View {
-  const h = location.hash.replace('#', '')
-  return TABS.some((t) => t.id === h) ? (h as View) : 'largada'
-}
-
 export default function App() {
   const { state, sync, pending, loading, error, refresh } = useStore()
-  const [view, setView] = useState<View>(initialView)
+  const [mode, setMode] = useState<'public' | 'admin'>('public')
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem(AUTH_KEY) === 'true'
+  })
+  const [showLoginModal, setShowLoginModal] = useState(false)
+  const [adminTab, setAdminTab] = useState<AdminTab>('largada')
   const [toast, setToast] = useState<{ msg: string; err: boolean } | null>(null)
   const timer = useRef<number | undefined>(undefined)
 
@@ -55,9 +59,35 @@ export default function App() {
     [refresh, show],
   )
 
-  const go = (v: View) => {
-    setView(v)
-    history.replaceState(null, '', '#' + v)
+  const handleRequestAdmin = () => {
+    if (isAdminAuthenticated) {
+      setMode('admin')
+      history.replaceState(null, '', '#admin')
+    } else {
+      setShowLoginModal(true)
+    }
+  }
+
+  const handleLoginSuccess = () => {
+    setIsAdminAuthenticated(true)
+    localStorage.setItem(AUTH_KEY, 'true')
+    setShowLoginModal(false)
+    setMode('admin')
+    history.replaceState(null, '', '#admin')
+    show('🔓 Acesso de administrador liberado!')
+  }
+
+  const handleLogout = () => {
+    setIsAdminAuthenticated(false)
+    localStorage.removeItem(AUTH_KEY)
+    setMode('public')
+    history.replaceState(null, '', '#')
+    show('🔒 Sessão de administrador encerrada.')
+  }
+
+  const switchToPublic = () => {
+    setMode('public')
+    history.replaceState(null, '', '#')
   }
 
   let chip = '● modo local'
@@ -71,33 +101,87 @@ export default function App() {
   return (
     <>
       <header className="topbar">
-        <div className="brand">🚵 <strong>MTB</strong> Cronômetro</div>
-        <div className={chipClass}>{chip}</div>
+        <div className="brand">
+          <img src="/logo.png" alt="SPET Logo" className="brand-logo" />
+          <span><strong>MTB</strong> Cronômetro</span>
+        </div>
+
+        <div className="topbar-actions">
+          {/* Seletor de Modo: Público vs Admin com Proteção por Senha */}
+          <div className="mode-switch">
+            <button
+              type="button"
+              className={`mode-btn ${mode === 'public' ? 'active' : ''}`}
+              onClick={switchToPublic}
+            >
+              👀 Resultados
+            </button>
+            <button
+              type="button"
+              className={`mode-btn ${mode === 'admin' ? 'active' : ''}`}
+              onClick={handleRequestAdmin}
+            >
+              {isAdminAuthenticated ? '⚙️ Fiscal / ADM' : '🔒 Fiscal / ADM'}
+            </button>
+          </div>
+
+          <div className={chipClass}>{chip}</div>
+        </div>
       </header>
 
-      <SyncBanner sync={sync} pending={pending} />
+      {/* Modal de Login por PIN */}
+      {showLoginModal && (
+        <AdminLogin
+          onSuccess={handleLoginSuccess}
+          onCancel={() => setShowLoginModal(false)}
+        />
+      )}
+
+      {mode === 'admin' && (
+        <>
+          <SyncBanner sync={sync} pending={pending} />
+          {/* Barra de utilidades do ADM (Logout / Sair) */}
+          <div className="admin-status-bar">
+            <span>Área de Operações e Fiscais</span>
+            <button type="button" className="btn-logout" onClick={handleLogout}>
+              Sair da conta
+            </button>
+          </div>
+        </>
+      )}
 
       <main>
         {error && <div className="banner">{error}</div>}
         {loading ? (
-          <p className="hint">Carregando…</p>
+          <p className="hint">Carregando dados…</p>
+        ) : mode === 'public' ? (
+          /* TELA DE VISUALIZAÇÃO PÚBLICA (RESULTADOS + ATLETAS NA PISTA) */
+          <PublicView state={state} />
         ) : (
+          /* TELA DE ADMINISTRAÇÃO E FISCAIS */
           <>
-            {view === 'largada' && <Largada state={state} act={act} online={sync.online} />}
-            {view === 'chegada' && <Chegada state={state} act={act} online={sync.online} />}
-            {view === 'ranking' && <Ranking state={state} />}
-            {view === 'pilotos' && <Pilotos state={state} act={act} />}
+            {adminTab === 'largada' && <Largada state={state} act={act} online={sync.online} />}
+            {adminTab === 'chegada' && <Chegada state={state} act={act} online={sync.online} />}
+            {adminTab === 'ranking' && <Ranking state={state} />}
+            {adminTab === 'pilotos' && <Pilotos state={state} act={act} />}
           </>
         )}
       </main>
 
-      <nav className="tabs">
-        {TABS.map((t) => (
-          <button key={t.id} className={view === t.id ? 'active' : ''} onClick={() => go(t.id)}>
-            <span>{t.icon}</span>{t.label}
-          </button>
-        ))}
-      </nav>
+      {/* Barra de navegação inferior (apenas no modo ADMIN) */}
+      {mode === 'admin' && (
+        <nav className="tabs">
+          {ADMIN_TABS.map((t) => (
+            <button
+              key={t.id}
+              className={adminTab === t.id ? 'active' : ''}
+              onClick={() => setAdminTab(t.id)}
+            >
+              <span>{t.icon}</span>{t.label}
+            </button>
+          ))}
+        </nav>
+      )}
 
       <div className={'toast' + (toast ? ' show' : '') + (toast?.err ? ' err' : '')}>{toast?.msg}</div>
     </>

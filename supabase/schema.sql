@@ -2,6 +2,15 @@
 -- Cole este arquivo inteiro em: Supabase > SQL Editor > New query > Run
 -- É seguro rodar de novo: atualiza as funções sem apagar pilotos nem tempos.
 
+create table if not exists categories (
+  name text primary key
+);
+
+-- Insere as categorias padrão caso a tabela esteja vazia
+insert into categories (name)
+values ('Elite'), ('Master'), ('Sport'), ('Feminino'), ('Iniciante')
+on conflict do nothing;
+
 create table if not exists riders (
   num      text primary key,
   name     text not null,
@@ -116,17 +125,24 @@ $$;
 
 -- Segurança (PROTÓTIPO): qualquer pessoa com o link pode ler e escrever.
 -- Antes de abrir para o público, troque por autenticação (ex.: PIN do evento).
+alter table categories enable row level security;
 alter table riders enable row level security;
 alter table runs   enable row level security;
 
-drop policy if exists "prototype all riders" on riders;
-drop policy if exists "prototype all runs"   on runs;
-create policy "prototype all riders" on riders for all to anon using (true) with check (true);
-create policy "prototype all runs"   on runs   for all to anon using (true) with check (true);
+drop policy if exists "prototype all categories" on categories;
+drop policy if exists "prototype all riders"     on riders;
+drop policy if exists "prototype all runs"       on runs;
+create policy "prototype all categories" on categories for all to anon using (true) with check (true);
+create policy "prototype all riders"     on riders     for all to anon using (true) with check (true);
+create policy "prototype all runs"       on runs       for all to anon using (true) with check (true);
 
 -- Tempo real (ignora se as tabelas já estiverem na publicação)
 do $$
 begin
+  begin
+    alter publication supabase_realtime add table categories;
+  exception when duplicate_object then null;
+  end;
   begin
     alter publication supabase_realtime add table riders;
   exception when duplicate_object then null;

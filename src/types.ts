@@ -1,4 +1,4 @@
-export const CATEGORIES = ['Elite', 'Master', 'Sport', 'Feminino', 'Iniciante'] as const
+export const DEFAULT_CATEGORIES = ['Elite', 'Master', 'Sport', 'Feminino', 'Iniciante']
 
 export type RunStatus = 'track' | 'done' | 'dnf'
 
@@ -20,6 +20,7 @@ export interface Run {
 export interface AppState {
   riders: Rider[]
   runs: Run[]
+  categories: string[]
 }
 
 export interface SyncStatus {
@@ -63,12 +64,15 @@ export interface Api {
   discardPending(id: string): void
   /** Avisos assíncronos (ex.: ação rejeitada pelo servidor ao sincronizar). */
   onNotice(cb: (msg: string, isError: boolean) => void): () => void
+  addCategory(name: string): Promise<void>
+  removeCategory(name: string): Promise<void>
   addRider(rider: Rider): Promise<void>
   removeRider(num: string): Promise<void>
   startRun(num: string): Promise<Run | null>
-  finishRun(num: string): Promise<Run | null>
+  finishRun(num: string, atEpochMs?: number): Promise<Run | null>
   dnfRun(id: string): Promise<void>
   undoRun(id: string): Promise<void>
   loadDemo(): Promise<void>
   reset(): Promise<void>
 }
+

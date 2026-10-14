@@ -1,17 +1,18 @@
 import { useState } from 'react'
-import { CATEGORIES, type AppState } from '../types'
+import type { AppState } from '../types'
 import { buildRanking } from '../lib/ranking'
 import { fmt } from '../lib/time'
 
 export function Ranking({ state }: { state: AppState }) {
   const [cat, setCat] = useState('Todas')
   const rows = buildRanking(state, cat)
+  const categories = state.categories || []
 
   return (
     <section>
       <h2>Ranking</h2>
       <div className="chips">
-        {['Todas', ...CATEGORIES].map((c) => (
+        {['Todas', ...categories].map((c) => (
           <button key={c} className={'chip' + (c === cat ? ' active' : '')} onClick={() => setCat(c)}>{c}</button>
         ))}
       </div>

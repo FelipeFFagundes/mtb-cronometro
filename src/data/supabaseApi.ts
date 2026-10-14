@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import type { Api, AppState, PendingOp, Run, RunStatus, SyncStatus } from '../types'
+import { DEFAULT_CATEGORIES } from '../types'
 import { DEMO_RIDERS, DEMO_TIMES } from './demo'
 
 /*
@@ -122,13 +123,13 @@ function project(server: AppState, ops: Op[]): AppState {
       runs = runs.filter((r) => r.id !== op.runId)
     }
   }
-  return { riders: server.riders, runs }
+  return { riders: server.riders, runs, categories: server.categories }
 }
 
 export function createSupabaseApi(url: string, anonKey: string): Api {
   const sb = createClient(url, anonKey, { global: { fetch: timeoutFetch } })
 
-  let server: AppState = readJson<AppState>(CACHE_KEY, { riders: [], runs: [] })
+  let server: AppState = readJson<AppState>(CACHE_KEY, { riders: [], runs: [], categories: [...DEFAULT_CATEGORIES] })
   let queue: Op[] = readJson<Op[]>(QUEUE_KEY, [])
   let clockOffset = readJson<number>(OFFSET_KEY, 0)
   let online = typeof navigator === 'undefined' ? true : navigator.onLine
@@ -165,17 +166,29 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     if (pulling) return online
     pulling = true
     try {
-      const [riders, runs] = await Promise.all([
+      const [riders, runs, categories] = await Promise.all([
         sb.from('riders').select('num,name,category').order('num'),
         sb.from('runs').select('id,rider_num,started_at,finished_at,status').order('started_at'),
+        sb.from('categories').select('name').order('name'),
       ])
       if (riders.error || runs.error) {
         setOnline(false)
         return false
       }
+
+      // Se a tabela categories não existir ainda no Supabase, usa o cache atual ou as categorias dos pilotos
+      let cats: string[] = server.categories || [...DEFAULT_CATEGORIES]
+      if (!categories.error && categories.data) {
+        cats = categories.data.map((c: { name: string }) => c.name)
+      } else if (riders.data && riders.data.length > 0) {
+        const fromRiders = Array.from(new Set(riders.data.map((r: { category: string }) => r.category)))
+        cats = Array.from(new Set([...cats, ...fromRiders]))
+      }
+
       server = {
         riders: (riders.data ?? []).map((r) => ({ num: r.num, name: r.name, cat: r.category })),
         runs: ((runs.data ?? []) as RunRow[]).map(toRun),
+        categories: cats.length > 0 ? cats : [...DEFAULT_CATEGORIES],
       }
       writeJson(CACHE_KEY, server)
       online = true
@@ -313,6 +326,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
         .channel('mtb-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'runs' }, () => void pull())
         .on('postgres_changes', { event: '*', schema: 'public', table: 'riders' }, () => void pull())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, () => void pull())
         .subscribe()
       return () => {
         listeners.delete(onChange)
@@ -347,6 +361,40 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       return () => noticeListeners.delete(cb)
     },
 
+    async addCategory(name: string) {
+      const trimmed = name.trim()
+      if (!trimmed) throw new Error('Nome da categoria não pode ser vazio')
+      if (server.categories.includes(trimmed)) throw new Error(`Categoria "${trimmed}" já existe`)
+
+      // Tenta inserir na tabela categories
+      const { error } = await sb.from('categories').insert({ name: trimmed })
+      if (error && error.code !== '42P01') { // 42P01 = tabela não existe ainda
+        ensure({ error, status: 400 })
+      } else if (error && error.code === '42P01') {
+        // Fallback local caso tabela categories ainda não tenha sido criada no Supabase
+        server.categories.push(trimmed)
+        writeJson(CACHE_KEY, server)
+        emit()
+      }
+      await pull()
+    },
+
+    async removeCategory(name: string) {
+      if (server.riders.some((r) => r.cat === name)) {
+        throw new Error(`Não é possível remover "${name}": existem pilotos vinculados a ela`)
+      }
+
+      const { error } = await sb.from('categories').delete().eq('name', name)
+      if (error && error.code !== '42P01') {
+        ensure({ error, status: 400 })
+      } else if (error && error.code === '42P01') {
+        server.categories = server.categories.filter((c) => c !== name)
+        writeJson(CACHE_KEY, server)
+        emit()
+      }
+      await pull()
+    },
+
     async addRider(rider) {
       const r = await sb.from('riders').insert({ num: rider.num, name: rider.name, category: rider.cat })
       if (r.error?.code === '23505') throw new Error(`Número #${rider.num} já existe`)
@@ -369,7 +417,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       return view().runs.find((r) => r.id === id) ?? null
     },
 
-    async finishRun(num) {
+    async finishRun(num, atEpochMs) {
       const st = view()
       const rider = st.riders.find((r) => r.num === num)
       if (!rider) throw new Error(`Piloto #${num} não cadastrado`)
@@ -383,7 +431,8 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
         }
         notice(`Sem conexão: chegada de ${rider.name} guardada e será validada ao sincronizar.`)
       }
-      enqueue({ id: crypto.randomUUID(), kind: 'finish', num, at: nowSrv(), label: `Chegada · ${who(num)}` })
+      const finishTime = atEpochMs ?? nowSrv()
+      enqueue({ id: crypto.randomUUID(), kind: 'finish', num, at: finishTime, label: `Chegada · ${who(num)}` })
       return open ? (view().runs.find((r) => r.id === open.id) ?? null) : null
     },
 
