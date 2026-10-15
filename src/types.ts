@@ -79,6 +79,7 @@ export interface Api {
   /** Avisos assíncronos (ex.: ação rejeitada pelo servidor ao sincronizar). */
   onNotice(cb: (msg: string, isError: boolean) => void): () => void
   addCategory(name: string): Promise<void>
+  updateCategory(oldName: string, newName: string): Promise<void>
   removeCategory(name: string): Promise<void>
   addStage(name: string): Promise<void>
   updateStage(id: string, name: string): Promise<void>

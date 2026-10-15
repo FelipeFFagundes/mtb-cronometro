@@ -401,6 +401,46 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       await pull()
     },
 
+    async updateCategory(oldName: string, newName: string) {
+      const trimmed = newName.trim()
+      if (!trimmed) throw new Error('Nome da categoria não pode ser vazio')
+      if (oldName !== trimmed && server.categories.includes(trimmed)) {
+        throw new Error(`Categoria "${trimmed}" já existe`)
+      }
+
+      // Atualiza os atletas vinculados a esta categoria no Supabase
+      await sb.from('riders').update({ category: trimmed }).eq('category', oldName)
+
+      // Atualiza o nome na tabela categories
+      const { error } = await sb.from('categories').update({ name: trimmed }).eq('name', oldName)
+      if (error && error.code !== '42P01' && error.code !== 'PGRST205') {
+        ensure({ error, status: 400 })
+      }
+
+      const idx = server.categories.indexOf(oldName)
+      if (idx !== -1) {
+        server.categories[idx] = trimmed
+      }
+      server.riders = server.riders.map((r) => (r.cat === oldName ? { ...r, cat: trimmed } : r))
+      writeJson(CACHE_KEY, server)
+      emit()
+
+      // Atualiza a grade de largada no localStorage se existir
+      try {
+        const saved = localStorage.getItem('mtb_start_grid')
+        if (saved) {
+          const items = JSON.parse(saved)
+          const updated = items.map((i: any) =>
+            i.category === oldName ? { ...i, category: trimmed } : i
+          )
+          localStorage.setItem('mtb_start_grid', JSON.stringify(updated))
+          window.dispatchEvent(new Event('storage'))
+        }
+      } catch {}
+
+      await pull()
+    },
+
     async removeCategory(name: string) {
       await sb.from('riders').update({ category: 'Sem Categoria' }).eq('category', name)
       const { error } = await sb.from('categories').delete().eq('name', name)

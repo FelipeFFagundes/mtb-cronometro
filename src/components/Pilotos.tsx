@@ -285,6 +285,8 @@ export function Pilotos({ state, act }: Props) {
 
   // Estado para piloto em edição (modal)
   const [editingRider, setEditingRider] = useState<{ originalNum: string; num: string; name: string; cat: string } | null>(null)
+  // Estado para edição de categoria
+  const [editingCategory, setEditingCategory] = useState<{ oldName: string; name: string } | null>(null)
   // Estado para confirmação de remoção de piloto, categoria e especial
   const [deletingRider, setDeletingRider] = useState<Rider | null>(null)
   const [deletingCategory, setDeletingCategory] = useState<{ name: string; ridersCount: number } | null>(null)
@@ -358,6 +360,42 @@ export function Pilotos({ state, act }: Props) {
       () => api.removeCategory(name),
       `Categoria "${name}" removida. Atletas vinculados agora estão "Sem Categoria".`
     )
+  }
+
+  const saveEditCategory = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!editingCategory) return
+    const oldName = editingCategory.oldName
+    const newName = editingCategory.name.trim()
+    if (!newName) {
+      return act(async () => { throw new Error('O nome da categoria não pode ser vazio') })
+    }
+    if (oldName === newName) {
+      setEditingCategory(null)
+      return
+    }
+
+    const ok = await act(
+      () => api.updateCategory(oldName, newName),
+      `🏷️ Categoria renomeada para "${newName}"!`
+    )
+    if (ok) {
+      setCategoryOrder((prev) => prev.map((c) => (c === oldName ? newName : c)))
+      setSelectedCategories((prev) => prev.map((c) => (c === oldName ? newName : c)))
+      if (cat === oldName) setCat(newName)
+      setCategoryStartTimes((prev) => {
+        if (prev[oldName]) {
+          const next = { ...prev, [newName]: prev[oldName] }
+          delete next[oldName]
+          try {
+            localStorage.setItem('mtb_category_start_times', JSON.stringify(next))
+          } catch {}
+          return next
+        }
+        return prev
+      })
+      setEditingCategory(null)
+    }
   }
 
   const submitStage = async (e: FormEvent) => {
@@ -482,6 +520,60 @@ export function Pilotos({ state, act }: Props) {
                 sx={{ fontWeight: 700 }}
               >
                 Salvar Alterações
+              </Button>
+            </DialogActions>
+          </form>
+        )}
+      </Dialog>
+
+      {/* MODAL DE EDIÇÃO DE CATEGORIA */}
+      <Dialog
+        open={Boolean(editingCategory)}
+        onClose={() => setEditingCategory(null)}
+        maxWidth="xs"
+        fullWidth
+        slotProps={{ paper: { sx: { p: 1 } } }}
+      >
+        {editingCategory && (
+          <form onSubmit={(e) => void saveEditCategory(e)}>
+            <DialogTitle sx={{ fontWeight: 800 }}>
+              Editar Nome da Categoria
+            </DialogTitle>
+
+            <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '10px !important' }}>
+              <TextField
+                label="Nome da Categoria"
+                value={editingCategory.name}
+                onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
+                placeholder="Ex: Elite Masculina"
+                fullWidth
+                required
+                autoFocus
+              />
+              {state.riders.filter((r) => r.cat === editingCategory.oldName).length > 0 && (
+                <Alert severity="info" sx={{ borderRadius: 2 }}>
+                  {state.riders.filter((r) => r.cat === editingCategory.oldName).length} atleta(s) vinculados a esta categoria serão atualizados automaticamente.
+                </Alert>
+              )}
+            </DialogContent>
+
+            <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+              <Button
+                variant="outlined"
+                color="inherit"
+                fullWidth
+                onClick={() => setEditingCategory(null)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                variant="contained"
+                color="primary"
+                fullWidth
+                sx={{ fontWeight: 700 }}
+              >
+                Salvar Nome
               </Button>
             </DialogActions>
           </form>
@@ -814,21 +906,36 @@ export function Pilotos({ state, act }: Props) {
                       sx={{
                         py: 1.2,
                         pl: 2.5,
-                        pr: 6,
+                        pr: 11,
                         bgcolor: 'background.default',
                         borderRadius: 2.5,
                         mb: 0.8,
+                        display: 'flex',
+                        alignItems: 'center',
                       }}
                       secondaryAction={
-                        <IconButton
-                          edge="end"
-                          color="error"
-                          size="small"
-                          onClick={() => setDeletingCategory({ name: c, ridersCount: count })}
-                          title="Excluir categoria"
-                        >
-                          <DeleteOutlineRoundedIcon fontSize="small" />
-                        </IconButton>
+                        <Box sx={{ display: 'flex', gap: 0.5 }}>
+                          <IconButton
+                            edge="end"
+                            color="primary"
+                            size="small"
+                            onClick={() => setEditingCategory({ oldName: c, name: c })}
+                            title="Editar nome da categoria"
+                            sx={{ bgcolor: 'rgba(56, 189, 248, 0.08)' }}
+                          >
+                            <EditRoundedIcon fontSize="small" />
+                          </IconButton>
+                          <IconButton
+                            edge="end"
+                            color="error"
+                            size="small"
+                            onClick={() => setDeletingCategory({ name: c, ridersCount: count })}
+                            title="Excluir categoria"
+                            sx={{ bgcolor: 'rgba(239, 68, 68, 0.08)' }}
+                          >
+                            <DeleteOutlineRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
                       }
                     >
                       <ListItemText

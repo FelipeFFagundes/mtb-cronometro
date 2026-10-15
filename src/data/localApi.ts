@@ -80,6 +80,35 @@ export function createLocalApi(): Api {
       write(s)
     },
 
+    async updateCategory(oldName: string, newName: string) {
+      const s = read()
+      const trimmed = newName.trim()
+      if (!trimmed) throw new Error('Nome da categoria não pode ser vazio')
+      if (oldName !== trimmed && s.categories.includes(trimmed)) {
+        throw new Error(`Categoria "${trimmed}" já existe`)
+      }
+      const idx = s.categories.indexOf(oldName)
+      if (idx !== -1) {
+        s.categories[idx] = trimmed
+      }
+      // Atualiza os atletas vinculados a esta categoria
+      s.riders = s.riders.map((r) => (r.cat === oldName ? { ...r, cat: trimmed } : r))
+      write(s)
+
+      // Atualiza a grade de largada se existir no localStorage
+      try {
+        const saved = localStorage.getItem('mtb_start_grid')
+        if (saved) {
+          const items = JSON.parse(saved)
+          const updated = items.map((i: any) =>
+            i.category === oldName ? { ...i, category: trimmed } : i
+          )
+          localStorage.setItem('mtb_start_grid', JSON.stringify(updated))
+          window.dispatchEvent(new Event('storage'))
+        }
+      } catch {}
+    },
+
     async removeCategory(name: string) {
       const s = read()
       s.categories = s.categories.filter((c) => c !== name)
