@@ -73,8 +73,22 @@ export function PublicView({ state }: { state: AppState }) {
         setGridItems([])
       }
     }
+
+    const handleCustomGrid = (e: Event) => {
+      const customEvt = e as CustomEvent<StartGridItem[]>
+      if (customEvt.detail) {
+        setGridItems(customEvt.detail)
+      } else {
+        handleStorage()
+      }
+    }
+
     window.addEventListener('storage', handleStorage)
-    return () => window.removeEventListener('storage', handleStorage)
+    window.addEventListener('mtb_grid_updated', handleCustomGrid)
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+      window.removeEventListener('mtb_grid_updated', handleCustomGrid)
+    }
   }, [])
 
   // Mapa rápido de informações da grade por número de placa para a especial selecionada
@@ -654,7 +668,7 @@ export function PublicView({ state }: { state: AppState }) {
           <EnduroLeaderboard
             state={state}
             title="Resultados Oficiais"
-            subtitle="Enduro MTB Series · Classificação Consolidada e Grade de Largada"
+            subtitle="SPET Enduro & DH Series · Classificação Consolidada e Grade de Largada"
           />
         </Box>
       )}

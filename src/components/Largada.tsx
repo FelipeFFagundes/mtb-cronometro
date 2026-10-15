@@ -126,13 +126,31 @@ export function Largada({ state, act, online }: Props) {
     const handleStorage = () => {
       try {
         const saved = localStorage.getItem(STORAGE_GRID_KEY)
-        setGridItems(saved ? JSON.parse(saved) : [])
+        const items = saved ? JSON.parse(saved) : []
+        setGridItems(items)
+        if (items.length === 0) setViewGridOpen(false)
       } catch {
         setGridItems([])
+        setViewGridOpen(false)
       }
     }
+
+    const handleCustomGrid = (e: Event) => {
+      const customEvt = e as CustomEvent<StartGridItem[]>
+      if (customEvt.detail) {
+        setGridItems(customEvt.detail)
+        if (customEvt.detail.length === 0) setViewGridOpen(false)
+      } else {
+        handleStorage()
+      }
+    }
+
     window.addEventListener('storage', handleStorage)
-    return () => window.removeEventListener('storage', handleStorage)
+    window.addEventListener('mtb_grid_updated', handleCustomGrid)
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+      window.removeEventListener('mtb_grid_updated', handleCustomGrid)
+    }
   }, [])
 
   const [viewGridOpen, setViewGridOpen] = useState(false)

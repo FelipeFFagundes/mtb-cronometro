@@ -145,8 +145,8 @@ export default function App() {
               alt="SPET Logo"
               sx={{ height: 28, width: 'auto', display: 'block' }}
             />
-            <Typography variant="h6" sx={{ fontWeight: 800, fontSize: { xs: '1rem', sm: '1.15rem' } }}>
-              <span style={{ color: '#38bdf8' }}>MTB</span> Cronômetro
+            <Typography variant="h6" sx={{ fontWeight: 800, fontSize: { xs: '1rem', sm: '1.15rem' }, color: '#ffffff' }}>
+              Race Timer
             </Typography>
           </Box>
 
