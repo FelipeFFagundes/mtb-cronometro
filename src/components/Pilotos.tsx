@@ -133,9 +133,32 @@ export function Pilotos({ state, act }: Props) {
     }
   }
 
-  // Recalcula horários sequenciais para uma lista de pilotos a partir do gridStartTime
-  const buildGridWithTimes = (riders: Rider[]): StartGridItem[] => {
-    const [hh, mm] = gridStartTime.split(':').map(Number)
+  const [categoryStartTimes, setCategoryStartTimes] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem('mtb_category_start_times')
+      return saved ? JSON.parse(saved) : {}
+    } catch {
+      return {}
+    }
+  })
+
+  // Salvar horários das categorias
+  const updateCategoryStartTime = (catName: string, timeStr: string) => {
+    setCategoryStartTimes((prev) => {
+      const next = { ...prev, [catName]: timeStr }
+      try {
+        localStorage.setItem('mtb_category_start_times', JSON.stringify(next))
+      } catch {
+        /* noop */
+      }
+      return next
+    })
+  }
+
+  // Gera os horários com base no horário de início de cada categoria
+  const buildItemsForCategory = (catName: string, riders: Rider[]): StartGridItem[] => {
+    const timeStr = categoryStartTimes[catName] || gridStartTime || '09:00'
+    const [hh, mm] = timeStr.split(':').map(Number)
     const baseDate = new Date()
     baseDate.setHours(isNaN(hh) ? 9 : hh, isNaN(mm) ? 0 : mm, 0, 0)
     const baseEpoch = baseDate.getTime()
@@ -157,7 +180,7 @@ export function Pilotos({ state, act }: Props) {
     })
   }
 
-  // Gerar ou atualizar grade com as categorias selecionadas (preservando categorias não selecionadas já presentes na grade)
+  // Gerar ou atualizar grade com as categorias selecionadas (preservando categorias não selecionadas e seus horários intactos)
   const handleGenerateGrid = () => {
     if (state.riders.length === 0) {
       return act(async () => { throw new Error('Cadastre pilotos antes de gerar a grade de largada') })
@@ -176,66 +199,45 @@ export function Pilotos({ state, act }: Props) {
       return act(async () => { throw new Error('Nenhum piloto encontrado nas categorias selecionadas') })
     }
 
-    // 1. Manter os pilotos das categorias NÃO selecionadas que já estavam na grade
-    const unselectedGridRiders: Rider[] = []
-    gridItems.forEach((item) => {
-      const r = state.riders.find((rider) => rider.num === item.num)
-      if (r && !selectedCategories.includes(r.cat || 'Sem Categoria')) {
-        unselectedGridRiders.push(r)
-      }
-    })
+    // 1. Manter os itens já gerados das categorias NÃO selecionadas exatamente com seus horários originais
+    const unselectedItems = gridItems.filter(
+      (item) => !selectedCategories.includes(item.category || 'Sem Categoria')
+    )
 
-    // 2. Agrupar os pilotos das categorias selecionadas e embaralhar dentro de cada uma
-    const groupedSelected = new Map<string, Rider[]>()
-    eligibleRiders.forEach((r) => {
-      const c = r.cat || 'Sem Categoria'
-      if (!groupedSelected.has(c)) groupedSelected.set(c, [])
-      groupedSelected.get(c)!.push(r)
-    })
-
-    // Também agrupamos os pilotos não selecionados já existentes por categoria para respeitar a ordem global
-    const groupedUnselected = new Map<string, Rider[]>()
-    unselectedGridRiders.forEach((r) => {
-      const c = r.cat || 'Sem Categoria'
-      if (!groupedUnselected.has(c)) groupedUnselected.set(c, [])
-      groupedUnselected.get(c)!.push(r)
-    })
-
-    // 3. Montar a lista sequencial na ordem definida de categoryOrder
-    const orderedRiders: Rider[] = []
+    // 2. Para cada categoria selecionada, embaralhar os pilotos e calcular seus horários a partir do seu próprio horário inicial
+    const newlyGeneratedItems: StartGridItem[] = []
 
     categoryOrder.forEach((c) => {
       if (selectedCategories.includes(c)) {
-        const list = groupedSelected.get(c)
-        if (list && list.length > 0) {
-          // Sorteia aleatoriamente os atletas desta categoria selecionada
-          const shuffled = [...list].sort(() => Math.random() - 0.5)
-          orderedRiders.push(...shuffled)
-          groupedSelected.delete(c)
-        }
-      } else {
-        // Mantém os atletas da categoria não selecionada na ordem que já estavam
-        const existingList = groupedUnselected.get(c)
-        if (existingList && existingList.length > 0) {
-          orderedRiders.push(...existingList)
-          groupedUnselected.delete(c)
+        const catRiders = eligibleRiders.filter((r) => (r.cat || 'Sem Categoria') === c)
+        if (catRiders.length > 0) {
+          const shuffled = [...catRiders].sort(() => Math.random() - 0.5)
+          const itemsForCat = buildItemsForCategory(c, shuffled)
+          newlyGeneratedItems.push(...itemsForCat)
         }
       }
     })
 
-    // Qualquer outra categoria restante
-    groupedSelected.forEach((list) => {
-      orderedRiders.push(...list.sort(() => Math.random() - 0.5))
-    })
-    groupedUnselected.forEach((list) => {
-      orderedRiders.push(...list)
+    // 3. Mesclar mantendo a ordem das categorias definida em categoryOrder
+    const mergedItems: StartGridItem[] = []
+    const allItems = [...unselectedItems, ...newlyGeneratedItems]
+
+    categoryOrder.forEach((c) => {
+      const catItems = allItems.filter((i) => i.category === c)
+      mergedItems.push(...catItems)
     })
 
-    const items = buildGridWithTimes(orderedRiders)
-    saveGrid(items)
+    // Adicionar qualquer item de categoria que não esteja no categoryOrder
+    allItems.forEach((item) => {
+      if (!categoryOrder.includes(item.category) && !mergedItems.some((m) => m.num === item.num)) {
+        mergedItems.push(item)
+      }
+    })
+
+    saveGrid(mergedItems)
   }
 
-  // Sortear ou adicionar apenas UMA categoria individual
+  // Sortear apenas UMA categoria individual (mantém intactas todas as outras categorias e seus horários)
   const handleShuffleSingleCategory = (targetCat: string) => {
     const categoryRiders = state.riders.filter((r) => (r.cat || 'Sem Categoria') === targetCat)
     if (categoryRiders.length === 0) {
@@ -245,37 +247,29 @@ export function Pilotos({ state, act }: Props) {
     // Embaralha aleatoriamente os pilotos dessa categoria
     const shuffledCategoryRiders = [...categoryRiders].sort(() => Math.random() - 0.5)
 
-    // Se já existem itens na grade, vamos substituir/atualizar os dessa categoria, ou adicionar ao final
-    const currentRidersInGrid: Rider[] = []
-    const seenNums = new Set<string>()
+    // Calcula os horários dos pilotos dessa categoria usando o horário específico dela
+    const newCatItems = buildItemsForCategory(targetCat, shuffledCategoryRiders)
 
-    // Mapear os atletas atualmente na grade
-    gridItems.forEach((item) => {
-      const rider = state.riders.find((r) => r.num === item.num)
-      if (rider && (rider.cat || 'Sem Categoria') !== targetCat) {
-        currentRidersInGrid.push(rider)
-        seenNums.add(rider.num)
+    // Preserva intactos todos os itens de outras categorias
+    const otherItems = gridItems.filter((item) => (item.category || 'Sem Categoria') !== targetCat)
+
+    // Remonta a grade na ordem de categorias definida
+    const mergedItems: StartGridItem[] = []
+    const allItems = [...otherItems, ...newCatItems]
+
+    categoryOrder.forEach((c) => {
+      const catItems = allItems.filter((i) => i.category === c)
+      mergedItems.push(...catItems)
+    })
+
+    // Adiciona quaisquer categorias extras não listadas em categoryOrder
+    allItems.forEach((item) => {
+      if (!categoryOrder.includes(item.category) && !mergedItems.some((m) => m.num === item.num)) {
+        mergedItems.push(item)
       }
     })
 
-    // Determinar a posição de inserção com base no categoryOrder
-    const targetOrderIndex = categoryOrder.indexOf(targetCat)
-    let insertIndex = currentRidersInGrid.length
-
-    for (let i = 0; i < currentRidersInGrid.length; i++) {
-      const c = currentRidersInGrid[i].cat || 'Sem Categoria'
-      const cOrderIndex = categoryOrder.indexOf(c)
-      if (cOrderIndex > targetOrderIndex) {
-        insertIndex = i
-        break
-      }
-    }
-
-    currentRidersInGrid.splice(insertIndex, 0, ...shuffledCategoryRiders)
-
-    // Recalcula todos os horários sequencialmente
-    const newItems = buildGridWithTimes(currentRidersInGrid)
-    saveGrid(newItems)
+    saveGrid(mergedItems)
 
     // Garante que a categoria fique marcada como selecionada
     if (!selectedCategories.includes(targetCat)) {
@@ -1005,7 +999,7 @@ export function Pilotos({ state, act }: Props) {
                 {/* HORÁRIO INICIAL */}
                 <Box>
                   <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5, color: 'text.secondary' }}>
-                    Horário da 1ª Largada
+                    Horário Base Padrão
                   </Typography>
                   <TextField
                     type="time"
@@ -1121,9 +1115,32 @@ export function Pilotos({ state, act }: Props) {
                             </Box>
                           </Box>
 
-                          <Box sx={{ display: 'flex', gap: 0.8, alignItems: 'center' }}>
+                          <Box sx={{ display: 'flex', gap: 0.8, alignItems: 'center', flexWrap: 'wrap', justifyContent: { xs: 'flex-start', sm: 'flex-end' }, mt: { xs: 0.5, sm: 0 }, width: { xs: '100%', sm: 'auto' } }}>
+                            {/* HORÁRIO DE LARGADA DESTA CATEGORIA */}
+                            <Tooltip title={`Horário de largada específico para a categoria ${c}`}>
+                              <TextField
+                                type="time"
+                                size="small"
+                                label="Largada"
+                                value={categoryStartTimes[c] || gridStartTime}
+                                onChange={(e) => updateCategoryStartTime(c, e.target.value)}
+                                slotProps={{
+                                  inputLabel: { shrink: true, sx: { fontSize: '0.72rem' } },
+                                  htmlInput: {
+                                    step: 300,
+                                    style: { padding: '4px 6px', fontSize: '0.8rem', width: '75px' },
+                                  },
+                                }}
+                                sx={{
+                                  bgcolor: 'background.paper',
+                                  borderRadius: 1.5,
+                                  '& .MuiOutlinedInput-root': { borderRadius: 1.5 },
+                                }}
+                              />
+                            </Tooltip>
+
                             {/* BOTÃO PARA SORTEAR SOMENTE ESTA CATEGORIA */}
-                            <Tooltip title={`Sortear apenas a categoria "${c}" agora`}>
+                            <Tooltip title={`Sortear apenas a categoria "${c}" agora com este horário`}>
                               <span>
                                 <Button
                                   size="small"
@@ -1135,9 +1152,10 @@ export function Pilotos({ state, act }: Props) {
                                   sx={{
                                     fontSize: '0.7rem',
                                     fontWeight: 700,
-                                    py: 0.3,
+                                    py: 0.5,
                                     px: 1,
                                     borderRadius: 1.5,
+                                    whiteSpace: 'nowrap',
                                   }}
                                 >
                                   Sortear Só Esta
@@ -1145,24 +1163,26 @@ export function Pilotos({ state, act }: Props) {
                               </span>
                             </Tooltip>
 
-                            <IconButton
-                              size="small"
-                              disabled={idx === 0}
-                              onClick={() => moveCategory(idx, 'up')}
-                              title="Mover categoria para cima"
-                              sx={{ p: 0.5, bgcolor: 'rgba(255, 255, 255, 0.04)' }}
-                            >
-                              <ArrowUpwardRoundedIcon fontSize="small" />
-                            </IconButton>
-                            <IconButton
-                              size="small"
-                              disabled={idx === categoryOrder.length - 1}
-                              onClick={() => moveCategory(idx, 'down')}
-                              title="Mover categoria para baixo"
-                              sx={{ p: 0.5, bgcolor: 'rgba(255, 255, 255, 0.04)' }}
-                            >
-                              <ArrowDownwardRoundedIcon fontSize="small" />
-                            </IconButton>
+                            <Box sx={{ display: 'flex', gap: 0.3 }}>
+                              <IconButton
+                                size="small"
+                                disabled={idx === 0}
+                                onClick={() => moveCategory(idx, 'up')}
+                                title="Mover categoria para cima"
+                                sx={{ p: 0.5, bgcolor: 'rgba(255, 255, 255, 0.04)' }}
+                              >
+                                <ArrowUpwardRoundedIcon fontSize="small" />
+                              </IconButton>
+                              <IconButton
+                                size="small"
+                                disabled={idx === categoryOrder.length - 1}
+                                onClick={() => moveCategory(idx, 'down')}
+                                title="Mover categoria para baixo"
+                                sx={{ p: 0.5, bgcolor: 'rgba(255, 255, 255, 0.04)' }}
+                              >
+                                <ArrowDownwardRoundedIcon fontSize="small" />
+                              </IconButton>
+                            </Box>
                           </Box>
                         </Box>
                       )
