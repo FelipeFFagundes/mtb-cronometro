@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from 'react'
 import { api } from '../data'
 import type { Act } from '../App'
-import type { AppState, Rider, Stage } from '../types'
+import type { AppState, Rider, Stage, StartGridItem } from '../types'
+export type { StartGridItem } from '../types'
 import { DEFAULT_STAGES } from '../types'
 import { clock } from '../lib/time'
 import {
@@ -41,14 +42,6 @@ interface Props {
   state: AppState
   act: Act
   online: boolean
-}
-
-export interface StartGridItem {
-  num: string
-  riderName: string
-  category: string
-  scheduledTimeStr: string
-  scheduledEpoch: number
 }
 
 const STORAGE_GRID_KEY = 'mtb_start_grid'
@@ -144,14 +137,22 @@ export function Largada({ state, act, online }: Props) {
 
   const [viewGridOpen, setViewGridOpen] = useState(false)
 
-  // Mapeamento rápido da grade por número do piloto
+  // Mapeamento da grade por número do piloto para a especial ativa
+  const displayedGrid = useMemo(() => {
+    let stageItems = gridItems.filter((item) => (item.stageId || stages[0]?.id) === currentStage.id)
+    if (stageItems.length === 0) {
+      stageItems = gridItems.filter((item) => !item.stageId)
+    }
+    return stageItems
+  }, [gridItems, currentStage.id, stages])
+
   const gridMap = useMemo(() => {
     const map = new Map<string, { item: StartGridItem; index: number }>()
-    gridItems.forEach((item, index) => {
+    displayedGrid.forEach((item, index) => {
       map.set(item.num, { item, index })
     })
     return map
-  }, [gridItems])
+  }, [displayedGrid])
 
   // Pilotos disponíveis para largar nesta especial (ordenados pela Grade se existir, ou por número)
   const availableRiders = useMemo(() => {
@@ -521,9 +522,9 @@ export function Largada({ state, act, online }: Props) {
       >
         <DialogTitle sx={{ pb: 1, px: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h6" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <FormatListNumberedRoundedIcon color="primary" /> Ordem Oficial de Largada
+            <FormatListNumberedRoundedIcon color="primary" /> Ordem de Largada · {currentStage.name}
           </Typography>
-          <Chip label={`${gridItems.length} Pilotos`} size="small" color="primary" sx={{ fontWeight: 700 }} />
+          <Chip label={`${displayedGrid.length} Pilotos`} size="small" color="primary" sx={{ fontWeight: 700 }} />
         </DialogTitle>
 
         <DialogContent sx={{ px: { xs: 0.5, sm: 1 }, py: 1 }}>
@@ -537,8 +538,8 @@ export function Largada({ state, act, online }: Props) {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {gridItems.map((item, idx) => {
-                  const isFirstOfCategory = idx === 0 || gridItems[idx - 1].category !== item.category
+                {displayedGrid.map((item, idx) => {
+                  const isFirstOfCategory = idx === 0 || displayedGrid[idx - 1].category !== item.category
                   return (
                     <Fragment key={item.num}>
                       {isFirstOfCategory && (

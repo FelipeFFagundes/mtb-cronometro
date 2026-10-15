@@ -1,6 +1,5 @@
 import { useState, useEffect, Fragment } from 'react'
-import type { StartGridItem } from './Largada'
-import type { AppState } from '../types'
+import type { AppState, StartGridItem } from '../types'
 import { buildEnduroRanking } from '../lib/ranking'
 import { fmt } from '../lib/time'
 import {
@@ -55,6 +54,7 @@ export function EnduroLeaderboard({
   const [expandedNums, setExpandedNums] = useState<Set<string>>(new Set())
 
   const [viewGridOpen, setViewGridOpen] = useState(false)
+  const [viewGridStageFilter, setViewGridStageFilter] = useState<string>('all')
   const [gridItems, setGridItems] = useState<StartGridItem[]>(() => {
     try {
       const saved = localStorage.getItem('mtb_start_grid')
@@ -778,67 +778,124 @@ export function EnduroLeaderboard({
         </DialogTitle>
 
         <DialogContent sx={{ px: { xs: 0.5, sm: 1 }, py: 1 }}>
-          <TableContainer component={Paper} sx={{ bgcolor: 'background.paper', borderRadius: 2, overflowX: 'hidden' }}>
-            <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
-              <TableHead>
-                <TableRow sx={{ bgcolor: 'rgba(255, 255, 255, 0.03)' }}>
-                  <TableCell sx={{ fontWeight: 800, width: { xs: 52, sm: 64 }, pl: 1.5, pr: 0.5, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>POS</TableCell>
-                  <TableCell sx={{ fontWeight: 800, pl: 1.5, pr: 1, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>PILOTO</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 800, width: { xs: 80, sm: 95 }, pr: 1.5, pl: 1, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>HORÁRIO</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {gridItems.map((item, idx) => {
-                  const isFirstOfCategory = idx === 0 || gridItems[idx - 1].category !== item.category
-                  return (
-                    <Fragment key={item.num}>
-                      {isFirstOfCategory && (
-                        <TableRow sx={{ bgcolor: 'rgba(56, 189, 248, 0.08)' }}>
-                          <TableCell
-                            colSpan={3}
-                            sx={{
-                              py: 0.8,
-                              px: 1.5,
-                              fontWeight: 900,
-                              fontSize: '0.78rem',
-                              letterSpacing: '0.04em',
-                              color: 'primary.main',
-                              borderBottom: '1px solid rgba(56, 189, 248, 0.2)',
-                            }}
-                          >
-                            CATEGORIA: {item.category.toUpperCase()}
-                          </TableCell>
-                        </TableRow>
-                      )}
-                      <TableRow sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
-                        <TableCell sx={{ fontWeight: 800, color: 'text.secondary', pl: 1.5, pr: 0.5, fontSize: { xs: '0.85rem', sm: '0.9rem' } }}>
-                          {idx + 1}º
-                        </TableCell>
-                        <TableCell sx={{ pl: 1.5, pr: 1 }}>
-                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.2 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, flexWrap: 'wrap' }}>
-                              <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
-                                {item.riderName}
-                              </Typography>
-                              <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>
-                                #{item.num}
-                              </Typography>
-                            </Box>
-                            <Typography variant="caption" sx={{ color: 'primary.light', fontSize: '0.68rem', display: { xs: 'block', sm: 'none' } }}>
-                              {item.category}
-                            </Typography>
-                          </Box>
-                        </TableCell>
-                        <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 800, color: 'primary.light', pr: 1.5, pl: 1, fontSize: { xs: '0.85rem', sm: '0.9rem' } }}>
-                          {item.scheduledTimeStr}
-                        </TableCell>
-                      </TableRow>
-                    </Fragment>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          {/* SELETOR DE ESPECIAL DENTRO DO MODAL DA GRADE */}
+          {stages.length > 1 && (
+            <Box sx={{ mb: 1.5, display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+              <Chip
+                size="small"
+                label={`Todas as Especiais (${gridItems.length})`}
+                onClick={() => setViewGridStageFilter('all')}
+                color={viewGridStageFilter === 'all' ? 'primary' : 'default'}
+                variant={viewGridStageFilter === 'all' ? 'filled' : 'outlined'}
+                sx={{ fontWeight: 700, fontSize: '0.72rem' }}
+              />
+              {stages.map((st) => {
+                const count = gridItems.filter((i) => (i.stageId || stages[0]?.id) === st.id).length
+                return (
+                  <Chip
+                    key={st.id}
+                    size="small"
+                    label={`${st.name} (${count})`}
+                    onClick={() => setViewGridStageFilter(st.id)}
+                    color={viewGridStageFilter === st.id ? 'primary' : 'default'}
+                    variant={viewGridStageFilter === st.id ? 'filled' : 'outlined'}
+                    sx={{ fontWeight: 700, fontSize: '0.72rem' }}
+                  />
+                )
+              })}
+            </Box>
+          )}
+
+          {(() => {
+            const filteredItems = viewGridStageFilter === 'all'
+              ? gridItems
+              : gridItems.filter((i) => (i.stageId || stages[0]?.id) === viewGridStageFilter)
+
+            if (filteredItems.length === 0) {
+              return (
+                <Box sx={{ py: 3, textAlign: 'center' }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Nenhum piloto na grade para a especial selecionada.
+                  </Typography>
+                </Box>
+              )
+            }
+
+            return (
+              <TableContainer component={Paper} sx={{ bgcolor: 'background.paper', borderRadius: 2, overflowX: 'hidden' }}>
+                <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'rgba(255, 255, 255, 0.03)' }}>
+                      <TableCell sx={{ fontWeight: 800, width: { xs: 52, sm: 64 }, pl: 1.5, pr: 0.5, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>POS</TableCell>
+                      <TableCell sx={{ fontWeight: 800, pl: 1.5, pr: 1, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>PILOTO</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 800, width: { xs: 80, sm: 95 }, pr: 1.5, pl: 1, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>HORÁRIO</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {filteredItems.map((item, idx) => {
+                      const prev = filteredItems[idx - 1]
+                      const itemStage = stages.find((s) => s.id === (item.stageId || stages[0]?.id))
+                      const isFirstOfCategory =
+                        idx === 0 ||
+                        prev.category !== item.category ||
+                        (viewGridStageFilter === 'all' && (prev.stageId || stages[0]?.id) !== (item.stageId || stages[0]?.id))
+
+                      return (
+                        <Fragment key={`${item.stageId || 'default'}-${item.num}-${idx}`}>
+                          {isFirstOfCategory && (
+                            <TableRow sx={{ bgcolor: 'rgba(56, 189, 248, 0.08)' }}>
+                              <TableCell
+                                colSpan={3}
+                                sx={{
+                                  py: 0.8,
+                                  px: 1.5,
+                                  fontWeight: 900,
+                                  fontSize: '0.78rem',
+                                  letterSpacing: '0.04em',
+                                  color: 'primary.main',
+                                  borderBottom: '1px solid rgba(56, 189, 248, 0.2)',
+                                }}
+                              >
+                                {viewGridStageFilter === 'all' && stages.length > 1 && (
+                                  <Box component="span" sx={{ color: 'secondary.main', mr: 1 }}>
+                                    [{itemStage?.name || 'Especial'}]
+                                  </Box>
+                                )}
+                                CATEGORIA: {item.category.toUpperCase()}
+                              </TableCell>
+                            </TableRow>
+                          )}
+                          <TableRow sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
+                            <TableCell sx={{ fontWeight: 800, color: 'text.secondary', pl: 1.5, pr: 0.5, fontSize: { xs: '0.85rem', sm: '0.9rem' } }}>
+                              {idx + 1}º
+                            </TableCell>
+                            <TableCell sx={{ pl: 1.5, pr: 1 }}>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.2 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, flexWrap: 'wrap' }}>
+                                  <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                                    {item.riderName}
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>
+                                    #{item.num}
+                                  </Typography>
+                                </Box>
+                                <Typography variant="caption" sx={{ color: 'primary.light', fontSize: '0.68rem', display: { xs: 'block', sm: 'none' } }}>
+                                  {item.category}
+                                </Typography>
+                              </Box>
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 800, color: 'primary.light', pr: 1.5, pl: 1, fontSize: { xs: '0.85rem', sm: '0.9rem' } }}>
+                              {item.scheduledTimeStr}
+                            </TableCell>
+                          </TableRow>
+                        </Fragment>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )
+          })()}
         </DialogContent>
 
         <DialogActions sx={{ px: 2, pb: 1 }}>

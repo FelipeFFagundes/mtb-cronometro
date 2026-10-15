@@ -49,23 +49,19 @@ import TuneRoundedIcon from '@mui/icons-material/TuneRounded'
 import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded'
 import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded'
 import ShuffleRoundedIcon from '@mui/icons-material/ShuffleRounded'
+import type { StartGridItem } from '../types'
+export type { StartGridItem } from '../types'
 
 interface Props {
   state: AppState
   act: Act
 }
 
-export interface StartGridItem {
-  num: string
-  riderName: string
-  category: string
-  scheduledTimeStr: string
-  scheduledEpoch: number
-}
-
 export const STORAGE_GRID_KEY = 'mtb_start_grid'
 
 export function Pilotos({ state, act }: Props) {
+  const stages = state.stages && state.stages.length > 0 ? state.stages : []
+
   const [num, setNum] = useState('')
   const [name, setName] = useState('')
   const [newCat, setNewCat] = useState('')
@@ -78,6 +74,8 @@ export function Pilotos({ state, act }: Props) {
 
   // Grade de Ordem de Largada
   const [showGridManager, setShowGridManager] = useState(false)
+  const [gridStageId, setGridStageId] = useState<string>(() => stages[0]?.id || 'stage-1')
+  const [tableStageFilter, setTableStageFilter] = useState<string>('all')
   const [gridStartTime, setGridStartTime] = useState('09:00')
   const [gridIntervalMinutes, setGridIntervalMinutes] = useState(1)
   const [categoryOrder, setCategoryOrder] = useState<string[]>([])
@@ -90,6 +88,13 @@ export function Pilotos({ state, act }: Props) {
       return []
     }
   })
+
+  // Sincroniza gridStageId caso a especial deixe de existir
+  useEffect(() => {
+    if (stages.length > 0 && !stages.some((s) => s.id === gridStageId)) {
+      setGridStageId(stages[0].id)
+    }
+  }, [stages, gridStageId])
 
   // Manter categoryOrder e selectedCategories sincronizados com as categorias do estado
   useEffect(() => {
@@ -133,6 +138,16 @@ export function Pilotos({ state, act }: Props) {
     }
   }
 
+  // Horários das categorias por especial (ex: { 'stage-1': { 'Elite': '08:30' }, 'stage-2': { 'Elite': '10:00' } })
+  const [categoryStartTimesByStage, setCategoryStartTimesByStage] = useState<Record<string, Record<string, string>>>(() => {
+    try {
+      const saved = localStorage.getItem('mtb_category_start_times_by_stage')
+      return saved ? JSON.parse(saved) : {}
+    } catch {
+      return {}
+    }
+  })
+
   const [categoryStartTimes, setCategoryStartTimes] = useState<Record<string, string>>(() => {
     try {
       const saved = localStorage.getItem('mtb_category_start_times')
@@ -142,8 +157,29 @@ export function Pilotos({ state, act }: Props) {
     }
   })
 
-  // Salvar horários das categorias
-  const updateCategoryStartTime = (catName: string, timeStr: string) => {
+  // Obtém o horário de largada de uma categoria para uma especial específica
+  const getCategoryStartTime = (catName: string, stId: string = gridStageId): string => {
+    if (categoryStartTimesByStage[stId]?.[catName]) {
+      return categoryStartTimesByStage[stId][catName]
+    }
+    if (categoryStartTimes[catName]) {
+      return categoryStartTimes[catName]
+    }
+    return gridStartTime || '09:00'
+  }
+
+  // Atualiza horário da categoria para a especial selecionada
+  const updateCategoryStartTime = (catName: string, timeStr: string, stId: string = gridStageId) => {
+    setCategoryStartTimesByStage((prev) => {
+      const stageMap = prev[stId] || {}
+      const next = { ...prev, [stId]: { ...stageMap, [catName]: timeStr } }
+      try {
+        localStorage.setItem('mtb_category_start_times_by_stage', JSON.stringify(next))
+      } catch {
+        /* noop */
+      }
+      return next
+    })
     setCategoryStartTimes((prev) => {
       const next = { ...prev, [catName]: timeStr }
       try {
@@ -155,9 +191,9 @@ export function Pilotos({ state, act }: Props) {
     })
   }
 
-  // Gera os horários com base no horário de início de cada categoria
-  const buildItemsForCategory = (catName: string, riders: Rider[]): StartGridItem[] => {
-    const timeStr = categoryStartTimes[catName] || gridStartTime || '09:00'
+  // Gera os horários com base no horário de início de cada categoria para a especial informada
+  const buildItemsForCategory = (catName: string, riders: Rider[], stId: string = gridStageId): StartGridItem[] => {
+    const timeStr = getCategoryStartTime(catName, stId)
     const [hh, mm] = timeStr.split(':').map(Number)
     const baseDate = new Date()
     baseDate.setHours(isNaN(hh) ? 9 : hh, isNaN(mm) ? 0 : mm, 0, 0)
@@ -180,7 +216,7 @@ export function Pilotos({ state, act }: Props) {
     })
   }
 
-  // Gerar ou atualizar grade com as categorias selecionadas (preservando categorias não selecionadas e seus horários intactos)
+  // Gerar ou atualizar grade com as categorias selecionadas para a especial ativa
   const handleGenerateGrid = () => {
     if (state.riders.length === 0) {
       return act(async () => { throw new Error('Cadastre pilotos antes de gerar a grade de largada') })
@@ -189,6 +225,8 @@ export function Pilotos({ state, act }: Props) {
     if (selectedCategories.length === 0) {
       return act(async () => { throw new Error('Selecione pelo menos uma categoria para incluir na grade') })
     }
+
+    const currentStageObj = stages.find((s) => s.id === gridStageId) || stages[0]
 
     // Pilotos das categorias selecionadas
     const eligibleRiders = state.riders.filter((r) =>
@@ -199,12 +237,19 @@ export function Pilotos({ state, act }: Props) {
       return act(async () => { throw new Error('Nenhum piloto encontrado nas categorias selecionadas') })
     }
 
-    // 1. Manter os itens já gerados das categorias NÃO selecionadas exatamente com seus horários originais
-    const unselectedItems = gridItems.filter(
-      (item) => !selectedCategories.includes(item.category || 'Sem Categoria')
+    // 1. Manter intactos todos os itens de OUTRAS especiais
+    const otherStageItems = gridItems.filter(
+      (item) => item.stageId && item.stageId !== gridStageId
     )
 
-    // 2. Para cada categoria selecionada, embaralhar os pilotos e calcular seus horários a partir do seu próprio horário inicial
+    // 2. Na especial atual, manter os itens já gerados das categorias NÃO selecionadas
+    const currentStageUnselected = gridItems.filter(
+      (item) =>
+        (!item.stageId || item.stageId === gridStageId) &&
+        !selectedCategories.includes(item.category || 'Sem Categoria')
+    )
+
+    // 3. Para cada categoria selecionada, embaralhar os pilotos e calcular horários para a especial ativa
     const newlyGeneratedItems: StartGridItem[] = []
 
     categoryOrder.forEach((c) => {
@@ -212,76 +257,92 @@ export function Pilotos({ state, act }: Props) {
         const catRiders = eligibleRiders.filter((r) => (r.cat || 'Sem Categoria') === c)
         if (catRiders.length > 0) {
           const shuffled = [...catRiders].sort(() => Math.random() - 0.5)
-          const itemsForCat = buildItemsForCategory(c, shuffled)
+          const itemsForCat = buildItemsForCategory(c, shuffled, gridStageId)
           newlyGeneratedItems.push(...itemsForCat)
         }
       }
     })
 
-    // 3. Mesclar mantendo a ordem das categorias definida em categoryOrder
-    const mergedItems: StartGridItem[] = []
-    const allItems = [...unselectedItems, ...newlyGeneratedItems]
+    // 4. Mesclar mantendo a ordem das categorias definida em categoryOrder
+    const mergedCurrentStageItems: StartGridItem[] = []
+    const allCurrentStageItems = [...currentStageUnselected, ...newlyGeneratedItems]
 
     categoryOrder.forEach((c) => {
-      const catItems = allItems.filter((i) => i.category === c)
-      mergedItems.push(...catItems)
+      const catItems = allCurrentStageItems.filter((i) => i.category === c)
+      mergedCurrentStageItems.push(...catItems)
     })
 
-    // Adicionar qualquer item de categoria que não esteja no categoryOrder
-    allItems.forEach((item) => {
-      if (!categoryOrder.includes(item.category) && !mergedItems.some((m) => m.num === item.num)) {
-        mergedItems.push(item)
+    allCurrentStageItems.forEach((item) => {
+      if (!categoryOrder.includes(item.category) && !mergedCurrentStageItems.some((m) => m.num === item.num)) {
+        mergedCurrentStageItems.push(item)
       }
     })
 
-    saveGrid(mergedItems)
+    const finalGrid = [...otherStageItems, ...mergedCurrentStageItems]
+    saveGrid(finalGrid)
+    void act(async () => {}, `🏁 Grade gerada para a especial ${currentStageObj?.name ?? ''}!`)
   }
 
-  // Sortear apenas UMA categoria individual (mantém intactas todas as outras categorias e seus horários)
+  // Sortear apenas UMA categoria para a especial selecionada (mantém intactas todas as outras categorias e especiais)
   const handleShuffleSingleCategory = (targetCat: string) => {
     const categoryRiders = state.riders.filter((r) => (r.cat || 'Sem Categoria') === targetCat)
     if (categoryRiders.length === 0) {
       return act(async () => { throw new Error(`Nenhum piloto cadastrado na categoria "${targetCat}"`) })
     }
 
+    const currentStageObj = stages.find((s) => s.id === gridStageId) || stages[0]
+
     // Embaralha aleatoriamente os pilotos dessa categoria
     const shuffledCategoryRiders = [...categoryRiders].sort(() => Math.random() - 0.5)
 
-    // Calcula os horários dos pilotos dessa categoria usando o horário específico dela
-    const newCatItems = buildItemsForCategory(targetCat, shuffledCategoryRiders)
+    // Calcula os horários dos pilotos dessa categoria para a especial atual
+    const newCatItems = buildItemsForCategory(targetCat, shuffledCategoryRiders, gridStageId)
 
-    // Preserva intactos todos os itens de outras categorias
-    const otherItems = gridItems.filter((item) => (item.category || 'Sem Categoria') !== targetCat)
+    // Preserva intactos todos os itens de OUTRAS especiais
+    const otherStageItems = gridItems.filter(
+      (item) => item.stageId && item.stageId !== gridStageId
+    )
 
-    // Remonta a grade na ordem de categorias definida
-    const mergedItems: StartGridItem[] = []
-    const allItems = [...otherItems, ...newCatItems]
+    // Na especial atual, preserva as outras categorias
+    const currentStageOtherItems = gridItems.filter(
+      (item) =>
+        (!item.stageId || item.stageId === gridStageId) &&
+        (item.category || 'Sem Categoria') !== targetCat
+    )
+
+    // Remonta a grade da especial atual na ordem de categorias definida
+    const mergedCurrentStageItems: StartGridItem[] = []
+    const allCurrentStageItems = [...currentStageOtherItems, ...newCatItems]
 
     categoryOrder.forEach((c) => {
-      const catItems = allItems.filter((i) => i.category === c)
-      mergedItems.push(...catItems)
+      const catItems = allCurrentStageItems.filter((i) => i.category === c)
+      mergedCurrentStageItems.push(...catItems)
     })
 
-    // Adiciona quaisquer categorias extras não listadas em categoryOrder
-    allItems.forEach((item) => {
-      if (!categoryOrder.includes(item.category) && !mergedItems.some((m) => m.num === item.num)) {
-        mergedItems.push(item)
+    allCurrentStageItems.forEach((item) => {
+      if (!categoryOrder.includes(item.category) && !mergedCurrentStageItems.some((m) => m.num === item.num)) {
+        mergedCurrentStageItems.push(item)
       }
     })
 
-    saveGrid(mergedItems)
+    saveGrid([...otherStageItems, ...mergedCurrentStageItems])
 
     // Garante que a categoria fique marcada como selecionada
     if (!selectedCategories.includes(targetCat)) {
       setSelectedCategories((prev) => [...prev, targetCat])
     }
+
+    void act(async () => {}, `🎲 Categoria "${targetCat}" sorteada para a especial ${currentStageObj?.name ?? ''}!`)
+  }
+
+  const handleClearCurrentStageGrid = () => {
+    const otherStageItems = gridItems.filter((item) => item.stageId && item.stageId !== gridStageId)
+    saveGrid(otherStageItems)
   }
 
   const handleClearGrid = () => {
     saveGrid([])
   }
-
-  const stages = state.stages && state.stages.length > 0 ? state.stages : []
 
   // Estado para piloto em edição (modal)
   const [editingRider, setEditingRider] = useState<{ originalNum: string; num: string; name: string; cat: string } | null>(null)
@@ -1071,42 +1132,64 @@ export function Pilotos({ state, act }: Props) {
       </Card>
 
       {/* GRADE DE ORDEM DE LARGADA */}
-      <Card sx={{ bgcolor: gridItems.length > 0 ? 'rgba(56, 189, 248, 0.03)' : 'background.paper' }}>
+      <Card>
         <CardContent sx={{ pb: '16px !important' }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <FormatListNumberedRoundedIcon color="primary" />
-              <Box>
-                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                  Grade de Ordem de Largada {gridItems.length > 0 ? `(${gridItems.length} atletas)` : ''}
-                </Typography>
-                {gridItems.length > 0 && (
-                  <Typography variant="caption" color="text.secondary">
-                    1ª largada às {gridItems[0]?.scheduledTimeStr} · Intervalo: {gridIntervalMinutes} min
-                  </Typography>
-                )}
-              </Box>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                Grade de Largada {gridItems.length > 0 ? `(${gridItems.length})` : ''}
+              </Typography>
             </Box>
             <Button
               size="small"
               variant="outlined"
-              color={gridItems.length > 0 ? 'primary' : 'inherit'}
+              color="inherit"
               onClick={() => setShowGridManager(!showGridManager)}
               endIcon={showGridManager ? <ExpandLessRoundedIcon /> : <ExpandMoreRoundedIcon />}
               sx={{ borderRadius: 2, fontSize: '0.8rem' }}
             >
-              {showGridManager ? 'Fechar' : gridItems.length > 0 ? 'Ver / Editar' : 'Configurar Grade'}
+              {showGridManager ? 'Fechar' : 'Gerenciar'}
             </Button>
           </Box>
 
           <Collapse in={showGridManager}>
             <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              {/* SELETOR DE ESPECIAL PARA A GRADE */}
+              {stages.length > 0 && (
+                <Box sx={{ mb: 2, p: 1.2, bgcolor: 'rgba(56, 189, 248, 0.05)', borderRadius: 2, border: '1px solid rgba(56, 189, 248, 0.2)' }}>
+                  <Typography variant="caption" sx={{ fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'primary.main', display: 'block', mb: 0.8 }}>
+                    Especial da Grade:
+                  </Typography>
+
+                  <Box sx={{ display: 'flex', gap: 0.8, flexWrap: 'wrap' }}>
+                    {stages.map((st) => {
+                      const stageCount = gridItems.filter((i) => (i.stageId || stages[0]?.id) === st.id).length
+                      const isSelected = gridStageId === st.id
+                      return (
+                        <Chip
+                          key={st.id}
+                          label={`${st.name}${stageCount > 0 ? ` (${stageCount})` : ''}`}
+                          onClick={() => {
+                            setGridStageId(st.id)
+                            setTableStageFilter(st.id)
+                          }}
+                          color={isSelected ? 'primary' : 'default'}
+                          variant={isSelected ? 'filled' : 'outlined'}
+                          sx={{ fontWeight: 700, fontSize: '0.75rem' }}
+                        />
+                      )
+                    })}
+                  </Box>
+                </Box>
+              )}
+
               {/* CONFIGURAÇÃO DA GRADE */}
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr 1fr' }, gap: 2, mb: 2 }}>
-                {/* HORÁRIO INICIAL */}
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2, mb: 2 }}>
+                {/* HORÁRIO BASE PADRÃO */}
                 <Box>
                   <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5, color: 'text.secondary' }}>
-                    Horário Base Padrão
+                    Horário Base
                   </Typography>
                   <TextField
                     type="time"
@@ -1123,7 +1206,7 @@ export function Pilotos({ state, act }: Props) {
                 {/* INTERVALO */}
                 <Box>
                   <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5, color: 'text.secondary' }}>
-                    Intervalo entre Pilotos (minutos)
+                    Intervalo (minutos)
                   </Typography>
                   <Box sx={{ display: 'flex', gap: 0.5, mb: 0.8, flexWrap: 'wrap' }}>
                     {[0.5, 1, 2, 3].map((val) => (
@@ -1154,16 +1237,16 @@ export function Pilotos({ state, act }: Props) {
                 <Box sx={{ gridColumn: { xs: '1', sm: '1 / -1' } }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.8, flexWrap: 'wrap', gap: 1 }}>
                     <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
-                      Categorias para o Sorteio (marque as que deseja incluir na grade e ordene a sequência de largada):
+                      Categorias & Horários:
                     </Typography>
-                    <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Box sx={{ display: 'flex', gap: 0.5 }}>
                       <Button
                         size="small"
                         variant="text"
                         onClick={() => setSelectedCategories([...categoryOrder])}
                         sx={{ fontSize: '0.68rem', py: 0.2, px: 0.8 }}
                       >
-                        Marcar Todas
+                        Todas
                       </Button>
                       <Button
                         size="small"
@@ -1172,7 +1255,7 @@ export function Pilotos({ state, act }: Props) {
                         onClick={() => setSelectedCategories([])}
                         sx={{ fontSize: '0.68rem', py: 0.2, px: 0.8 }}
                       >
-                        Desmarcar
+                        Nenhuma
                       </Button>
                     </Box>
                   </Box>
@@ -1181,7 +1264,10 @@ export function Pilotos({ state, act }: Props) {
                     {categoryOrder.map((c, idx) => {
                       const isSelected = selectedCategories.includes(c)
                       const count = state.riders.filter((r) => (r.cat || 'Sem Categoria') === c).length
-                      const inGridCount = gridItems.filter((i) => i.category === c).length
+                      const inStageGridCount = gridItems.filter(
+                        (i) => i.category === c && (i.stageId || stages[0]?.id) === gridStageId
+                      ).length
+
                       return (
                         <Box
                           key={c}
@@ -1216,21 +1302,21 @@ export function Pilotos({ state, act }: Props) {
                                 {c}
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
-                                {count} atletas cadastrados
-                                {inGridCount > 0 && ` · ${inGridCount} na grade`}
+                                {count} {count === 1 ? 'piloto' : 'pilotos'}
+                                {inStageGridCount > 0 && ` (${inStageGridCount} na grade)`}
                               </Typography>
                             </Box>
                           </Box>
 
                           <Box sx={{ display: 'flex', gap: 0.8, alignItems: 'center', flexWrap: 'wrap', justifyContent: { xs: 'flex-start', sm: 'flex-end' }, mt: { xs: 0.5, sm: 0 }, width: { xs: '100%', sm: 'auto' } }}>
-                            {/* HORÁRIO DE LARGADA DESTA CATEGORIA */}
-                            <Tooltip title={`Horário de largada específico para a categoria ${c}`}>
+                            {/* HORÁRIO DE LARGADA */}
+                            <Tooltip title={`Horário da categoria ${c}`}>
                               <TextField
                                 type="time"
                                 size="small"
-                                label="Largada"
-                                value={categoryStartTimes[c] || gridStartTime}
-                                onChange={(e) => updateCategoryStartTime(c, e.target.value)}
+                                label="Início"
+                                value={getCategoryStartTime(c, gridStageId)}
+                                onChange={(e) => updateCategoryStartTime(c, e.target.value, gridStageId)}
                                 slotProps={{
                                   inputLabel: { shrink: true, sx: { fontSize: '0.72rem' } },
                                   htmlInput: {
@@ -1246,8 +1332,8 @@ export function Pilotos({ state, act }: Props) {
                               />
                             </Tooltip>
 
-                            {/* BOTÃO PARA SORTEAR SOMENTE ESTA CATEGORIA */}
-                            <Tooltip title={`Sortear apenas a categoria "${c}" agora com este horário`}>
+                            {/* BOTÃO PARA SORTEAR */}
+                            <Tooltip title={`Sortear categoria ${c}`}>
                               <span>
                                 <Button
                                   size="small"
@@ -1255,17 +1341,17 @@ export function Pilotos({ state, act }: Props) {
                                   color="primary"
                                   disabled={count === 0}
                                   onClick={() => handleShuffleSingleCategory(c)}
-                                  startIcon={<ShuffleRoundedIcon sx={{ fontSize: 15 }} />}
+                                  startIcon={<ShuffleRoundedIcon sx={{ fontSize: 14 }} />}
                                   sx={{
                                     fontSize: '0.7rem',
                                     fontWeight: 700,
-                                    py: 0.5,
-                                    px: 1,
+                                    py: 0.4,
+                                    px: 0.8,
                                     borderRadius: 1.5,
                                     whiteSpace: 'nowrap',
                                   }}
                                 >
-                                  Sortear Só Esta
+                                  Sortear
                                 </Button>
                               </span>
                             </Tooltip>
@@ -1275,7 +1361,7 @@ export function Pilotos({ state, act }: Props) {
                                 size="small"
                                 disabled={idx === 0}
                                 onClick={() => moveCategory(idx, 'up')}
-                                title="Mover categoria para cima"
+                                title="Mover para cima"
                                 sx={{ p: 0.5, bgcolor: 'rgba(255, 255, 255, 0.04)' }}
                               >
                                 <ArrowUpwardRoundedIcon fontSize="small" />
@@ -1284,7 +1370,7 @@ export function Pilotos({ state, act }: Props) {
                                 size="small"
                                 disabled={idx === categoryOrder.length - 1}
                                 onClick={() => moveCategory(idx, 'down')}
-                                title="Mover categoria para baixo"
+                                title="Mover para baixo"
                                 sx={{ p: 0.5, bgcolor: 'rgba(255, 255, 255, 0.04)' }}
                               >
                                 <ArrowDownwardRoundedIcon fontSize="small" />
@@ -1307,87 +1393,158 @@ export function Pilotos({ state, act }: Props) {
                   startIcon={<TuneRoundedIcon />}
                   sx={{ fontWeight: 800 }}
                 >
-                  {gridItems.length > 0 ? 'Regerar Grade com Estes Parâmetros' : 'Gerar Grade de Largada'}
+                  {gridItems.some((i) => (i.stageId || stages[0]?.id) === gridStageId)
+                    ? 'Regerar Grade'
+                    : 'Gerar Grade'}
                 </Button>
 
                 {gridItems.length > 0 && (
-                  <Button
-                    variant="outlined"
-                    color="error"
-                    size="small"
-                    onClick={handleClearGrid}
-                    startIcon={<DeleteOutlineRoundedIcon />}
-                    sx={{ fontWeight: 700 }}
-                  >
-                    Limpar Grade
-                  </Button>
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                    {gridItems.some((i) => (i.stageId || stages[0]?.id) === gridStageId) && (
+                      <Button
+                        variant="outlined"
+                        color="warning"
+                        size="small"
+                        onClick={handleClearCurrentStageGrid}
+                        startIcon={<DeleteOutlineRoundedIcon />}
+                        sx={{ fontWeight: 700 }}
+                      >
+                        Limpar Especial
+                      </Button>
+                    )}
+                    <Button
+                      variant="outlined"
+                      color="error"
+                      size="small"
+                      onClick={handleClearGrid}
+                      startIcon={<DeleteOutlineRoundedIcon />}
+                      sx={{ fontWeight: 700 }}
+                    >
+                      Limpar Tudo
+                    </Button>
+                  </Box>
                 )}
               </Box>
 
               {/* TABELA COM A GRADE GERADA (RESPONSIVA, SEM SCROLL LATERAL) */}
-              {gridItems.length > 0 && (
-                <TableContainer component={Paper} sx={{ bgcolor: 'background.default', borderRadius: 2, border: '1px solid rgba(255, 255, 255, 0.06)', overflowX: 'hidden' }}>
-                  <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
-                    <TableHead>
-                      <TableRow sx={{ bgcolor: 'rgba(255, 255, 255, 0.04)' }}>
-                        <TableCell sx={{ fontWeight: 800, width: { xs: 52, sm: 64 }, pl: 1.5, pr: 0.5, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>POS</TableCell>
-                        <TableCell sx={{ fontWeight: 800, pl: 1.5, pr: 1, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>PILOTO</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 800, width: { xs: 80, sm: 95 }, pr: 1.5, pl: 1, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>HORÁRIO</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {gridItems.map((item, idx) => {
-                        const isFirstOfCategory = idx === 0 || gridItems[idx - 1].category !== item.category
-                        return (
-                          <Fragment key={item.num}>
-                            {isFirstOfCategory && (
-                              <TableRow sx={{ bgcolor: 'rgba(56, 189, 248, 0.08)' }}>
-                                <TableCell
-                                  colSpan={3}
-                                  sx={{
-                                    py: 0.8,
-                                    px: 1.5,
-                                    fontWeight: 900,
-                                    fontSize: '0.78rem',
-                                    letterSpacing: '0.04em',
-                                    color: 'primary.main',
-                                    borderBottom: '1px solid rgba(56, 189, 248, 0.2)',
-                                  }}
-                                >
-                                  CATEGORIA: {item.category.toUpperCase()}
-                                </TableCell>
-                              </TableRow>
-                            )}
-                            <TableRow sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
-                              <TableCell sx={{ fontWeight: 800, color: 'text.secondary', pl: 1.5, pr: 0.5, fontSize: { xs: '0.85rem', sm: '0.9rem' } }}>
-                                {idx + 1}º
-                              </TableCell>
-                              <TableCell sx={{ pl: 1.5, pr: 1 }}>
-                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.2 }}>
-                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, flexWrap: 'wrap' }}>
-                                    <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
-                                      {item.riderName}
-                                    </Typography>
-                                    <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>
-                                      #{item.num}
-                                    </Typography>
-                                  </Box>
-                                  <Typography variant="caption" sx={{ color: 'primary.light', fontSize: '0.68rem', display: { xs: 'block', sm: 'none' } }}>
-                                    {item.category}
-                                  </Typography>
-                                </Box>
-                              </TableCell>
-                              <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 800, color: 'primary.light', pr: 1.5, pl: 1, fontSize: { xs: '0.85rem', sm: '0.9rem' } }}>
-                                {item.scheduledTimeStr}
-                              </TableCell>
+              {gridItems.length > 0 && (() => {
+                const filteredItems = tableStageFilter === 'all'
+                  ? gridItems
+                  : gridItems.filter((i) => (i.stageId || stages[0]?.id) === tableStageFilter)
+
+                return (
+                  <Box sx={{ mt: 1 }}>
+                    {/* FILTRO DE VISUALIZAÇÃO POR ESPECIAL */}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1, flexWrap: 'wrap', gap: 1 }}>
+                      <Typography variant="caption" sx={{ fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'text.secondary' }}>
+                        Filtrar Especial:
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                        <Chip
+                          size="small"
+                          label={`Todas (${gridItems.length})`}
+                          onClick={() => setTableStageFilter('all')}
+                          color={tableStageFilter === 'all' ? 'primary' : 'default'}
+                          variant={tableStageFilter === 'all' ? 'filled' : 'outlined'}
+                          sx={{ fontWeight: 700, fontSize: '0.72rem' }}
+                        />
+                        {stages.map((st) => {
+                          const count = gridItems.filter((i) => (i.stageId || stages[0]?.id) === st.id).length
+                          return (
+                            <Chip
+                              key={st.id}
+                              size="small"
+                              label={`${st.name} (${count})`}
+                              onClick={() => setTableStageFilter(st.id)}
+                              color={tableStageFilter === st.id ? 'primary' : 'default'}
+                              variant={tableStageFilter === st.id ? 'filled' : 'outlined'}
+                              sx={{ fontWeight: 700, fontSize: '0.72rem' }}
+                            />
+                          )
+                        })}
+                      </Box>
+                    </Box>
+
+                    {filteredItems.length === 0 ? (
+                      <Box sx={{ py: 3, textAlign: 'center', bgcolor: 'background.default', borderRadius: 2, border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Nenhum piloto na grade para esta especial.
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <TableContainer component={Paper} sx={{ bgcolor: 'background.default', borderRadius: 2, border: '1px solid rgba(255, 255, 255, 0.06)', overflowX: 'hidden' }}>
+                        <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
+                          <TableHead>
+                            <TableRow sx={{ bgcolor: 'rgba(255, 255, 255, 0.04)' }}>
+                              <TableCell sx={{ fontWeight: 800, width: { xs: 52, sm: 64 }, pl: 1.5, pr: 0.5, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>POS</TableCell>
+                              <TableCell sx={{ fontWeight: 800, pl: 1.5, pr: 1, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>PILOTO</TableCell>
+                              <TableCell align="right" sx={{ fontWeight: 800, width: { xs: 80, sm: 95 }, pr: 1.5, pl: 1, fontSize: { xs: '0.72rem', sm: '0.8rem' } }}>HORÁRIO</TableCell>
                             </TableRow>
-                          </Fragment>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
+                          </TableHead>
+                          <TableBody>
+                            {filteredItems.map((item, idx) => {
+                              const prev = filteredItems[idx - 1]
+                              const itemStage = stages.find((s) => s.id === (item.stageId || stages[0]?.id))
+                              const isFirstOfGroup =
+                                idx === 0 ||
+                                prev.category !== item.category ||
+                                (tableStageFilter === 'all' && (prev.stageId || stages[0]?.id) !== (item.stageId || stages[0]?.id))
+
+                              return (
+                                <Fragment key={`${item.stageId || 'default'}-${item.num}-${idx}`}>
+                                  {isFirstOfGroup && (
+                                    <TableRow sx={{ bgcolor: 'rgba(56, 189, 248, 0.08)' }}>
+                                      <TableCell
+                                        colSpan={3}
+                                        sx={{
+                                          py: 0.8,
+                                          px: 1.5,
+                                          fontWeight: 900,
+                                          fontSize: '0.78rem',
+                                          letterSpacing: '0.04em',
+                                          color: 'primary.main',
+                                          borderBottom: '1px solid rgba(56, 189, 248, 0.2)',
+                                        }}
+                                      >
+                                        {tableStageFilter === 'all' && stages.length > 1
+                                          ? `${itemStage?.name || 'Especial'} · ${item.category.toUpperCase()}`
+                                          : item.category.toUpperCase()}
+                                      </TableCell>
+                                    </TableRow>
+                                  )}
+                                  <TableRow sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
+                                    <TableCell sx={{ fontWeight: 800, color: 'text.secondary', pl: 1.5, pr: 0.5, fontSize: { xs: '0.85rem', sm: '0.9rem' } }}>
+                                      {idx + 1}º
+                                    </TableCell>
+                                    <TableCell sx={{ pl: 1.5, pr: 1 }}>
+                                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.2 }}>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, flexWrap: 'wrap' }}>
+                                          <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                                            {item.riderName}
+                                          </Typography>
+                                          <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>
+                                            #{item.num}
+                                          </Typography>
+                                        </Box>
+                                        <Typography variant="caption" sx={{ color: 'primary.light', fontSize: '0.68rem', display: { xs: 'block', sm: 'none' } }}>
+                                          {item.category}
+                                        </Typography>
+                                      </Box>
+                                    </TableCell>
+                                    <TableCell align="right" sx={{ fontFamily: 'monospace', fontWeight: 800, color: 'primary.light', pr: 1.5, pl: 1, fontSize: { xs: '0.85rem', sm: '0.9rem' } }}>
+                                      {item.scheduledTimeStr}
+                                    </TableCell>
+                                  </TableRow>
+                                </Fragment>
+                              )
+                            })}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    )}
+                  </Box>
+                )
+              })()}
             </Box>
           </Collapse>
         </CardContent>

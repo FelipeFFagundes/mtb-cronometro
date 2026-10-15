@@ -20,6 +20,15 @@ export interface Rider {
   cat: string
 }
 
+export interface StartGridItem {
+  num: string
+  riderName: string
+  category: string
+  scheduledTimeStr: string
+  scheduledEpoch: number
+  stageId?: string
+}
+
 /** Uma descida em uma especial/trilha. `start`/`end` são epoch em ms (horário do servidor no modo Supabase). */
 export interface Run {
   id: string
