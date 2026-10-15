@@ -37,6 +37,7 @@ import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
 import RouteRoundedIcon from '@mui/icons-material/RouteRounded'
 import AccessTimeRoundedIcon from '@mui/icons-material/AccessTimeRounded'
 import FormatListNumberedRoundedIcon from '@mui/icons-material/FormatListNumberedRounded'
+import TrafficRoundedIcon from '@mui/icons-material/TrafficRounded'
 
 interface Props {
   state: AppState
@@ -78,7 +79,7 @@ export function Largada({ state, act, online }: Props) {
           const { rider, stage } = countdownTarget
           void actRef.current(
             () => api.startRun(rider.num, stage.id).then(() => undefined),
-            `🚦 #${rider.num} ${rider.name} largou na ${stage.name}!` + (onlineRef.current ? '' : ' (salvo offline)')
+            `#${rider.num} ${rider.name} largou na ${stage.name}!` + (onlineRef.current ? '' : ' (salvo offline)')
           )
         }
       } else if (current < 0) {
@@ -202,7 +203,7 @@ export function Largada({ state, act, online }: Props) {
       {/* CABEÇALHO */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
         <Typography variant="h5" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
-          🚦 Controle de Largada
+          <TrafficRoundedIcon color="primary" /> Controle de Largada
         </Typography>
         <Chip
           label={`${availableRiders.length} prontos para largar`}
@@ -538,7 +539,7 @@ export function Largada({ state, act, online }: Props) {
           },
         }}
       >
-        <DialogTitle sx={{ pb: 1, px: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <DialogTitle component="div" sx={{ pb: 1, px: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h6" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
             <FormatListNumberedRoundedIcon color="primary" /> Ordem de Largada · {currentStage.name}
           </Typography>

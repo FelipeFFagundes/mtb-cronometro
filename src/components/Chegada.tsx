@@ -77,7 +77,7 @@ export function Chegada({ state, act, online }: Props) {
     setConfirmTarget(null)
     return act(
       () => api.finishRun(target.num, target.capturedAt, target.stageId).then(() => undefined),
-      `🏁 ${targetName} concluiu${stageLabel}! ` +
+      `${targetName} concluiu${stageLabel}! ` +
         (target.startAt ? `(${fmt(target.capturedAt - target.startAt)})` : '') +
         (online ? '' : ' (salvo offline)')
     )
@@ -105,7 +105,7 @@ export function Chegada({ state, act, online }: Props) {
     setDnfTarget(null)
     return act(
       () => api.dnfRun(target.id),
-      `⚠️ Piloto #${target.num} (${target.name}) marcado como DNF`
+      `Piloto #${target.num} (${target.name}) marcado como DNF`
     )
   }
 
@@ -131,7 +131,7 @@ export function Chegada({ state, act, online }: Props) {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Typography variant="h5" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
-          🏁 Controle de Chegada
+          <FlagRoundedIcon color="primary" /> Controle de Chegada
         </Typography>
         <Chip
           label={`${track.length} na pista`}
@@ -430,7 +430,7 @@ export function Chegada({ state, act, online }: Props) {
                     setRunActionTarget(null)
                     await act(
                       () => api.dnfRun(target.id),
-                      `⚠️ Descida do piloto #${target.num} marcada como DNF / Desclassificado`
+                      `Descida do piloto #${target.num} marcada como DNF / Desclassificado`
                     )
                   }}
                   sx={{
@@ -464,7 +464,7 @@ export function Chegada({ state, act, online }: Props) {
                   setRunActionTarget(null)
                   await act(
                     () => api.undoRun(target.id),
-                    `🗑️ Descida do piloto #${target.num} excluída. O piloto pode relargar.`
+                    `Descida do piloto #${target.num} excluída. O piloto pode relargar.`
                   )
                 }}
                 sx={{
