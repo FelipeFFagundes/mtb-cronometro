@@ -1,7 +1,7 @@
 {
-  "name": "MTB Cronômetro",
-  "short_name": "MTB Cronô",
-  "description": "Cronometragem de descidas de MTB com largada e chegada sincronizadas",
+  "name": "SPET Race Timer",
+  "short_name": "SPET Timer",
+  "description": "Cronometragem de descidas de Enduro e DH com largada e chegada sincronizadas",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f1720",

@@ -131,8 +131,13 @@ export function Pilotos({ state, act }: Props) {
   const saveGrid = (items: StartGridItem[]) => {
     setGridItems(items)
     try {
-      localStorage.setItem(STORAGE_GRID_KEY, JSON.stringify(items))
+      if (items.length === 0) {
+        localStorage.removeItem(STORAGE_GRID_KEY)
+      } else {
+        localStorage.setItem(STORAGE_GRID_KEY, JSON.stringify(items))
+      }
       window.dispatchEvent(new Event('storage'))
+      window.dispatchEvent(new CustomEvent('mtb_grid_updated', { detail: items }))
     } catch (e) {
       console.error('Falha ao salvar grade de largada:', e)
     }
@@ -212,6 +217,7 @@ export function Pilotos({ state, act }: Props) {
         category: r.cat,
         scheduledTimeStr: `${hours}:${minutes}:${seconds}`,
         scheduledEpoch: timeMs,
+        stageId: stId,
       }
     })
   }
@@ -336,12 +342,18 @@ export function Pilotos({ state, act }: Props) {
   }
 
   const handleClearCurrentStageGrid = () => {
-    const otherStageItems = gridItems.filter((item) => item.stageId && item.stageId !== gridStageId)
+    const defaultStageId = stages[0]?.id
+    const otherStageItems = gridItems.filter(
+      (item) => (item.stageId || defaultStageId) !== gridStageId
+    )
     saveGrid(otherStageItems)
+    const currentStageObj = stages.find((s) => s.id === gridStageId) || stages[0]
+    void act(async () => {}, `🗑️ Grade da especial ${currentStageObj?.name ?? ''} foi limpa!`)
   }
 
   const handleClearGrid = () => {
     saveGrid([])
+    void act(async () => {}, '🗑️ Todas as grades de largada foram limpas!')
   }
 
   // Estado para piloto em edição (modal)
@@ -606,7 +618,7 @@ export function Pilotos({ state, act }: Props) {
                 label="Nome da Categoria"
                 value={editingCategory.name}
                 onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
-                placeholder="Ex: Elite Masculina"
+                placeholder="Ex: Elite Masculino"
                 fullWidth
                 required
                 autoFocus
