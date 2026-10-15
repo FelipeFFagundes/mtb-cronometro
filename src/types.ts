@@ -20,6 +20,15 @@ export interface Rider {
   cat: string
 }
 
+export interface StartGridItem {
+  num: string
+  riderName: string
+  category: string
+  scheduledTimeStr: string
+  scheduledEpoch: number
+  stageId?: string
+}
+
 /** Uma descida em uma especial/trilha. `start`/`end` são epoch em ms (horário do servidor no modo Supabase). */
 export interface Run {
   id: string
@@ -79,6 +88,7 @@ export interface Api {
   /** Avisos assíncronos (ex.: ação rejeitada pelo servidor ao sincronizar). */
   onNotice(cb: (msg: string, isError: boolean) => void): () => void
   addCategory(name: string): Promise<void>
+  updateCategory(oldName: string, newName: string): Promise<void>
   removeCategory(name: string): Promise<void>
   addStage(name: string): Promise<void>
   updateStage(id: string, name: string): Promise<void>

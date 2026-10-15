@@ -77,14 +77,20 @@ export function PublicView({ state }: { state: AppState }) {
     return () => window.removeEventListener('storage', handleStorage)
   }, [])
 
-  // Mapa rápido de informações da grade por número de placa
+  // Mapa rápido de informações da grade por número de placa para a especial selecionada
   const gridMap = useMemo(() => {
     const map = new Map<string, { item: StartGridItem; index: number }>()
-    gridItems.forEach((item, index) => {
+    let stageItems = gridItems.filter(
+      (item) => (item.stageId || stages[0]?.id) === selectedLiveStageId
+    )
+    if (stageItems.length === 0) {
+      stageItems = gridItems.filter((item) => !item.stageId)
+    }
+    stageItems.forEach((item, index) => {
       map.set(item.num, { item, index })
     })
     return map
-  }, [gridItems])
+  }, [gridItems, selectedLiveStageId, stages])
 
   // Próximos pilotos a largar na especial selecionada
   const nextToStart = useMemo(() => {
