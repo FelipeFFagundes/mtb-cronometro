@@ -166,7 +166,7 @@ export function EnduroLeaderboard({
             }}
           >
             <ToggleButton value="all">
-              🏁 Geral Acumulado
+              Geral Acumulado
             </ToggleButton>
             {stages.map((st) => (
               <ToggleButton key={st.id} value={st.id}>
@@ -214,7 +214,7 @@ export function EnduroLeaderboard({
             }
           >
             <MenuItem value="Todas" sx={{ fontWeight: 700 }}>
-              🏁 Todas as Categorias
+              Todas as Categorias
             </MenuItem>
             {categories.map((c) => (
               <MenuItem key={c} value={c} sx={{ fontWeight: 600 }}>
@@ -346,11 +346,11 @@ export function EnduroLeaderboard({
                           ? '#d97706'
                           : 'text.secondary',
                         fontWeight: 900,
-                        fontSize: isFirst || isSecond || isThird ? '1.1rem' : '0.9rem',
+                        fontSize: isFirst || isSecond || isThird ? '1rem' : '0.85rem',
                         flexShrink: 0,
                       }}
                     >
-                      {isFirst ? '🥇' : isSecond ? '🥈' : isThird ? '🥉' : `${i + 1}º`}
+                      {`${i + 1}º`}
                     </Box>
 
                     {/* Avatar Número */}
@@ -623,11 +623,11 @@ export function EnduroLeaderboard({
                           ? '#d97706'
                           : 'text.secondary',
                         fontWeight: 900,
-                        fontSize: isFirst || isSecond || isThird ? '1.1rem' : '0.9rem',
+                        fontSize: isFirst || isSecond || isThird ? '1rem' : '0.85rem',
                         flexShrink: 0,
                       }}
                     >
-                      {isFirst ? '🥇' : isSecond ? '🥈' : isThird ? '🥉' : `${i + 1}º`}
+                      {`${i + 1}º`}
                     </Box>
 
                     <Avatar
@@ -788,7 +788,7 @@ export function EnduroLeaderboard({
           },
         }}
       >
-        <DialogTitle sx={{ pb: 1, px: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <DialogTitle component="div" sx={{ pb: 1, px: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h6" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
             <FormatListNumberedRoundedIcon color="primary" /> Ordem Oficial de Largada
           </Typography>

@@ -89,7 +89,7 @@ export default function App() {
     setShowLoginModal(false)
     setMode('admin')
     history.replaceState(null, '', '#admin')
-    show('🔓 Acesso de administrador liberado!')
+    show('Acesso de administrador liberado!')
   }
 
   const handleLogout = () => {
@@ -97,7 +97,7 @@ export default function App() {
     localStorage.removeItem(AUTH_KEY)
     setMode('public')
     history.replaceState(null, '', '#')
-    show('🔒 Sessão de administrador encerrada.')
+    show('Sessão de administrador encerrada.')
   }
 
   const switchToPublic = () => {

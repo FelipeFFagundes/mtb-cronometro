@@ -37,6 +37,7 @@ import {
   Paper,
 } from '@mui/material'
 import PersonAddRoundedIcon from '@mui/icons-material/PersonAddRounded'
+import PeopleAltRoundedIcon from '@mui/icons-material/PeopleAltRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import CategoryRoundedIcon from '@mui/icons-material/CategoryRounded'
@@ -286,7 +287,7 @@ export function Pilotos({ state, act }: Props) {
 
     const finalGrid = [...otherStageItems, ...mergedCurrentStageItems]
     saveGrid(finalGrid)
-    void act(async () => {}, `🏁 Grade gerada para a especial ${currentStageObj?.name ?? ''}!`)
+    void act(async () => {}, `Grade gerada para a especial ${currentStageObj?.name ?? ''}!`)
   }
 
   // Sortear apenas UMA categoria para a especial selecionada (mantém intactas todas as outras categorias e especiais)
@@ -338,7 +339,7 @@ export function Pilotos({ state, act }: Props) {
       setSelectedCategories((prev) => [...prev, targetCat])
     }
 
-    void act(async () => {}, `🎲 Categoria "${targetCat}" sorteada para a especial ${currentStageObj?.name ?? ''}!`)
+    void act(async () => {}, `Categoria "${targetCat}" sorteada para a especial ${currentStageObj?.name ?? ''}!`)
   }
 
   const handleClearCurrentStageGrid = () => {
@@ -348,12 +349,12 @@ export function Pilotos({ state, act }: Props) {
     )
     saveGrid(otherStageItems)
     const currentStageObj = stages.find((s) => s.id === gridStageId) || stages[0]
-    void act(async () => {}, `🗑️ Grade da especial ${currentStageObj?.name ?? ''} foi limpa!`)
+    void act(async () => {}, `Grade da especial ${currentStageObj?.name ?? ''} foi limpa!`)
   }
 
   const handleClearGrid = () => {
     saveGrid([])
-    void act(async () => {}, '🗑️ Todas as grades de largada foram limpas!')
+    void act(async () => {}, 'Todas as grades de largada foram limpas!')
   }
 
   // Estado para piloto em edição (modal)
@@ -450,7 +451,7 @@ export function Pilotos({ state, act }: Props) {
 
     const ok = await act(
       () => api.updateCategory(oldName, newName),
-      `🏷️ Categoria renomeada para "${newName}"!`
+      `Categoria renomeada para "${newName}"!`
     )
     if (ok) {
       setCategoryOrder((prev) => prev.map((c) => (c === oldName ? newName : c)))
@@ -507,7 +508,7 @@ export function Pilotos({ state, act }: Props) {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Typography variant="h5" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
-          👥 Atletas & Categorias
+          <PeopleAltRoundedIcon color="primary" /> Atletas & Categorias
         </Typography>
         <Chip
           label={`${riders.length} cadastrados`}
@@ -720,7 +721,7 @@ export function Pilotos({ state, act }: Props) {
       >
         {deletingRider && (
           <>
-            <DialogTitle sx={{ pb: 1 }}>
+            <DialogTitle component="div" sx={{ pb: 1 }}>
               <Box
                 sx={{
                   width: 56,
@@ -792,7 +793,7 @@ export function Pilotos({ state, act }: Props) {
       >
         {deletingCategory && (
           <>
-            <DialogTitle sx={{ pb: 1 }}>
+            <DialogTitle component="div" sx={{ pb: 1 }}>
               <Box
                 sx={{
                   width: 56,
@@ -870,7 +871,7 @@ export function Pilotos({ state, act }: Props) {
       >
         {deletingStage && (
           <>
-            <DialogTitle sx={{ pb: 1 }}>
+            <DialogTitle component="div" sx={{ pb: 1 }}>
               <Box
                 sx={{
                   width: 56,
