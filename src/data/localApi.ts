@@ -1,8 +1,27 @@
-import type { Api, AppState, Run, Stage } from '../types'
+import type { Api, AppState, Rider, Run, Stage, StartGridItem } from '../types'
 import { DEFAULT_CATEGORIES, DEFAULT_STAGES } from '../types'
 import { DEMO_RIDERS, DEMO_STAGES } from './demo'
 
 const KEY = 'mtb-cronometro-v3'
+/** Grade das versões antigas, que ficava separada do estado. */
+const LEGACY_GRID_KEY = 'mtb_start_grid'
+
+/** Nome e categoria da grade sempre refletem o cadastro atual do piloto. */
+function withRiderInfo(grid: StartGridItem[], riders: Rider[]): StartGridItem[] {
+  return grid.flatMap((item) => {
+    const rider = riders.find((r) => r.num === item.num)
+    return rider ? [{ ...item, riderName: rider.name, category: rider.cat }] : []
+  })
+}
+
+function legacyGrid(): StartGridItem[] {
+  try {
+    const raw = localStorage.getItem(LEGACY_GRID_KEY)
+    return raw ? (JSON.parse(raw) as StartGridItem[]) : []
+  } catch {
+    return []
+  }
+}
 
 function read(): AppState {
   try {
@@ -17,17 +36,20 @@ function read(): AppState {
         ...r,
         stageId: r.stageId || stages[0]?.id || 'stage-1',
       }))
+      const riders = parsed.riders || []
+      const grid = (parsed.grid ?? legacyGrid()).map((i) => ({ ...i, stageId: i.stageId || stages[0]?.id }))
       return {
-        riders: parsed.riders || [],
+        riders,
         runs,
         categories,
         stages,
+        grid: withRiderInfo(grid, riders),
       }
     }
   } catch {
     /* ignora dados corrompidos */
   }
-  return { riders: [], runs: [], categories: [...DEFAULT_CATEGORIES], stages: [...DEFAULT_STAGES] }
+  return { riders: [], runs: [], categories: [...DEFAULT_CATEGORIES], stages: [...DEFAULT_STAGES], grid: [] }
 }
 
 export function createLocalApi(): Api {
@@ -37,6 +59,7 @@ export function createLocalApi(): Api {
 
   function write(state: AppState) {
     localStorage.setItem(KEY, JSON.stringify(state))
+    localStorage.removeItem(LEGACY_GRID_KEY) // já migrada para dentro do estado
     emit()
   }
 
@@ -94,19 +117,6 @@ export function createLocalApi(): Api {
       // Atualiza os atletas vinculados a esta categoria
       s.riders = s.riders.map((r) => (r.cat === oldName ? { ...r, cat: trimmed } : r))
       write(s)
-
-      // Atualiza a grade de largada se existir no localStorage
-      try {
-        const saved = localStorage.getItem('mtb_start_grid')
-        if (saved) {
-          const items = JSON.parse(saved)
-          const updated = items.map((i: any) =>
-            i.category === oldName ? { ...i, category: trimmed } : i
-          )
-          localStorage.setItem('mtb_start_grid', JSON.stringify(updated))
-          window.dispatchEvent(new Event('storage'))
-        }
-      } catch {}
     },
 
     async removeCategory(name: string) {
@@ -151,6 +161,7 @@ export function createLocalApi(): Api {
       // Deleta a especial e remove em cascata todas as descidas vinculadas a ela
       s.stages = s.stages.filter((st) => st.id !== id)
       s.runs = s.runs.filter((r) => r.stageId !== id)
+      s.grid = s.grid.filter((i) => i.stageId !== id)
       // reordena
       s.stages.forEach((st, idx) => {
         st.order = idx + 1
@@ -178,6 +189,7 @@ export function createLocalApi(): Api {
       // Atualiza em cascata o número do piloto nas descidas se mudou
       if (updated.num !== oldNum) {
         s.runs = s.runs.map((run) => (run.num === oldNum ? { ...run, num: updated.num } : run))
+        s.grid = s.grid.map((i) => (i.num === oldNum ? { ...i, num: updated.num } : i))
       }
       write(s)
     },
@@ -186,6 +198,20 @@ export function createLocalApi(): Api {
       const s = read()
       s.riders = s.riders.filter((r) => r.num !== num)
       s.runs = s.runs.filter((r) => r.num !== num)
+      s.grid = s.grid.filter((i) => i.num !== num)
+      write(s)
+    },
+
+    async setStageGrid(stageId, items) {
+      const s = read()
+      if (!s.stages.some((st) => st.id === stageId)) throw new Error('Especial não encontrada')
+      s.grid = [...s.grid.filter((i) => i.stageId !== stageId), ...items.map((i) => ({ ...i, stageId }))]
+      write(s)
+    },
+
+    async clearAllGrids() {
+      const s = read()
+      s.grid = []
       write(s)
     },
 
@@ -256,6 +282,7 @@ export function createLocalApi(): Api {
         runs: [],
         categories: [...DEFAULT_CATEGORIES],
         stages: [...DEMO_STAGES],
+        grid: [],
       })
     },
 
@@ -265,6 +292,7 @@ export function createLocalApi(): Api {
         runs: [],
         categories: [...DEFAULT_CATEGORIES],
         stages: [...DEFAULT_STAGES],
+        grid: [],
       })
     },
   }

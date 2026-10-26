@@ -44,6 +44,8 @@ export interface AppState {
   runs: Run[]
   categories: string[]
   stages: Stage[]
+  /** Ordem de largada de todas as especiais (por especial, na ordem de largada). */
+  grid: StartGridItem[]
 }
 
 export interface SyncStatus {
@@ -93,6 +95,10 @@ export interface Api {
   addStage(name: string): Promise<void>
   updateStage(id: string, name: string): Promise<void>
   removeStage(id: string): Promise<void>
+  /** Substitui a ordem de largada de uma especial (lista vazia limpa a especial). */
+  setStageGrid(stageId: string, items: StartGridItem[]): Promise<void>
+  /** Limpa a ordem de largada de todas as especiais. */
+  clearAllGrids(): Promise<void>
   addRider(rider: Rider): Promise<void>
   updateRider(oldNum: string, updated: Rider): Promise<void>
   removeRider(num: string): Promise<void>
