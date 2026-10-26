@@ -2,22 +2,12 @@ import { useState } from 'react'
 import { api } from '../data'
 import type { PendingOp, SyncStatus } from '../types'
 import { clock } from '../lib/time'
-import {
-  Alert,
-  Box,
-  Button,
-  Collapse,
-  IconButton,
-  List,
-  ListItem,
-  ListItemText,
-  Typography,
-} from '@mui/material'
+import { radius, tabular, tokens } from '../theme'
+import { BottomSheet } from './ui'
+import { Box, Button, IconButton, Typography } from '@mui/material'
 import CloudOffRoundedIcon from '@mui/icons-material/CloudOffRounded'
 import CloudSyncRoundedIcon from '@mui/icons-material/CloudSyncRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
-import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
-import ExpandLessRoundedIcon from '@mui/icons-material/ExpandLessRounded'
 
 interface Props {
   sync: SyncStatus
@@ -31,104 +21,67 @@ export function SyncBanner({ sync, pending }: Props) {
   if (sync.online && pending.length === 0) return null
 
   const isOffline = !sync.online
-
-  let text: string
-  if (isOffline) {
-    text = pending.length
-      ? `Sem conexão · ${pending.length} ${pending.length === 1 ? 'ação guardada localmente' : 'ações guardadas localmente'}`
-      : 'Sem conexão · os registros serão guardados e enviados automaticamente ao reconectar'
-  } else {
-    text = `Sincronizando ${pending.length} ${pending.length === 1 ? 'ação pendente' : 'ações pendentes'} com o servidor…`
-  }
+  const n = pending.length
+  const title = isOffline ? 'Sem conexão' : 'Enviando registros'
+  const text = n
+    ? `${n} ${n === 1 ? 'registro guardado' : 'registros guardados'} no aparelho`
+    : 'Os registros serão guardados e enviados ao reconectar'
 
   return (
-    <Box sx={{ mb: 2 }}>
-      <Alert
-        severity={isOffline ? 'warning' : 'info'}
-        icon={isOffline ? <CloudOffRoundedIcon /> : <CloudSyncRoundedIcon />}
+    <>
+      <Box
         sx={{
-          borderRadius: 3,
+          mb: 2,
+          p: 1.5,
+          borderRadius: radius.md,
+          display: 'flex',
           alignItems: 'center',
-          '& .MuiAlert-message': { width: '100%' },
+          gap: 1.5,
+          bgcolor: isOffline ? 'rgba(251, 146, 60, 0.12)' : 'rgba(96, 165, 250, 0.12)',
+          border: `1px solid ${isOffline ? 'rgba(251, 146, 60, 0.4)' : 'rgba(96, 165, 250, 0.4)'}`,
         }}
-        action={
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {pending.length > 0 && (
-              <>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="inherit"
-                  disabled={sync.syncing}
-                  onClick={() => void api.syncNow()}
-                  sx={{ py: 0.4, px: 1.2, fontSize: '0.8rem' }}
-                >
-                  Sincronizar
-                </Button>
-                <IconButton
-                  size="small"
-                  color="inherit"
-                  onClick={() => setOpenDetails(!openDetails)}
-                  aria-label="ver detalhes"
-                >
-                  {openDetails ? <ExpandLessRoundedIcon /> : <ExpandMoreRoundedIcon />}
-                </IconButton>
-              </>
-            )}
-          </Box>
-        }
       >
-        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-          {text}
-        </Typography>
-      </Alert>
-
-      {/* Lista de pendências detalhadas */}
-      <Collapse in={openDetails && pending.length > 0}>
-        <Box
-          sx={{
-            mt: 1,
-            p: 1.5,
-            bgcolor: 'background.paper',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            borderRadius: 3,
-          }}
-        >
-          <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase' }}>
-            Fila de Ações Offline
-          </Typography>
-          <List dense disablePadding sx={{ mt: 0.5 }}>
-            {pending.map((p) => (
-              <ListItem
-                key={p.id}
-                disableGutters
-                secondaryAction={
-                  <IconButton
-                    edge="end"
-                    aria-label="descartar"
-                    size="small"
-                    color="error"
-                    onClick={() => api.discardPending(p.id)}
-                    title="Descartar ação"
-                  >
-                    <DeleteOutlineRoundedIcon fontSize="small" />
-                  </IconButton>
-                }
-              >
-                <ListItemText
-                  primary={<Typography variant="body2" sx={{ fontWeight: 600 }}>{p.label}</Typography>}
-                  secondary={
-                    <Typography variant="caption" color="text.secondary">
-                      {clock(p.at)}
-                      {p.attempts > 0 && ' · aguardando largada ser sincronizada'}
-                    </Typography>
-                  }
-                />
-              </ListItem>
-            ))}
-          </List>
+        <Box sx={{ color: isOffline ? 'warning.main' : 'info.main', display: 'flex' }}>
+          {isOffline ? <CloudOffRoundedIcon /> : <CloudSyncRoundedIcon sx={{ animation: 'spin 1.5s linear infinite' }} />}
         </Box>
-      </Collapse>
-    </Box>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography sx={{ fontWeight: 800, lineHeight: 1.3 }}>{title}</Typography>
+          <Typography variant="caption" color="text.secondary">
+            {text}
+          </Typography>
+        </Box>
+        {n > 0 && (
+          <Button size="small" variant="outlined" color="inherit" onClick={() => setOpenDetails(true)} sx={{ flexShrink: 0 }}>
+            Ver fila
+          </Button>
+        )}
+      </Box>
+
+      <BottomSheet open={openDetails && n > 0} onClose={() => setOpenDetails(false)} title="Fila de envio">
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 2 }}>
+          {pending.map((p) => (
+            <Box key={p.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1.25, pr: 0.5, borderRadius: radius.sm, bgcolor: tokens.surface }}>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                  {p.label}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  <Box component="span" sx={tabular}>
+                    {clock(p.at)}
+                  </Box>
+                  {p.attempts > 0 && ' · aguardando a largada sincronizar'}
+                </Typography>
+              </Box>
+              <IconButton aria-label={`Descartar ${p.label}`} color="error" onClick={() => api.discardPending(p.id)}>
+                <DeleteOutlineRoundedIcon />
+              </IconButton>
+            </Box>
+          ))}
+        </Box>
+        <Button fullWidth size="large" variant="contained" disabled={sync.syncing} onClick={() => void api.syncNow()}>
+          Tentar enviar agora
+        </Button>
+      </BottomSheet>
+    </>
   )
 }
