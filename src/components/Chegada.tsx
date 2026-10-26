@@ -5,30 +5,14 @@ import type { AppState } from '../types'
 import { DEFAULT_STAGES } from '../types'
 import { clock, fmt } from '../lib/time'
 import { LiveTimer } from './LiveTimer'
-import {
-  Box,
-  Card,
-  Typography,
-  Button,
-  Chip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  List,
-  ListItem,
-  ListItemAvatar,
-  Avatar,
-  ListItemText,
-  Alert,
-  IconButton,
-  ToggleButton,
-  ToggleButtonGroup,
-} from '@mui/material'
-import FlagRoundedIcon from '@mui/icons-material/FlagRounded'
+import { radius, tabular, tokens } from '../theme'
+import { BottomSheet, ChipSelect, ConfirmDialog, EmptyState, ListCard, PageHeader, RiderPlate, Section, StickyBar } from './ui'
+import { Box, Button, ButtonBase, Chip, IconButton, Typography } from '@mui/material'
+import SportsScoreRoundedIcon from '@mui/icons-material/SportsScoreRounded'
 import WarningRoundedIcon from '@mui/icons-material/WarningRounded'
-import RouteRoundedIcon from '@mui/icons-material/RouteRounded'
-import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
+import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
+import BlockRoundedIcon from '@mui/icons-material/BlockRounded'
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 
 interface Props {
   state: AppState
@@ -46,11 +30,12 @@ interface RunActionTarget {
 }
 
 interface ConfirmTarget {
+  runId?: string
   num: string
   name: string
   stageId?: string
   stageName?: string
-  /** Carimbo do instante em que o fiscal apertou o botão */
+  /** Carimbo do instante em que o fiscal tocou no piloto */
   capturedAt: number
   startAt: number | null
 }
@@ -66,33 +51,35 @@ export function Chegada({ state, act, online }: Props) {
   const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget | null>(null)
   const [dnfTarget, setDnfTarget] = useState<DnfTarget | null>(null)
   const [runActionTarget, setRunActionTarget] = useState<RunActionTarget | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<RunActionTarget | null>(null)
 
   const stages = state.stages && state.stages.length > 0 ? state.stages : DEFAULT_STAGES
   const [selectedFilterStage, setSelectedFilterStage] = useState<string>('all')
 
-  // Registra a chegada de fato usando o tempo capturado no 1º clique
+  const riderName = (num: string) => state.riders.find((r) => r.num === num)?.name ?? `Piloto #${num}`
+
+  // Registra a chegada usando o tempo capturado no toque
   const executeFinish = async (target: ConfirmTarget) => {
-    const targetName = target.name
     const stageLabel = target.stageName ? ` (${target.stageName})` : ''
     setConfirmTarget(null)
     return act(
       () => api.finishRun(target.num, target.capturedAt, target.stageId).then(() => undefined),
-      `${targetName} concluiu${stageLabel}! ` +
+      `${target.name} chegou${stageLabel}! ` +
         (target.startAt ? `(${fmt(target.capturedAt - target.startAt)})` : '') +
-        (online ? '' : ' (salvo offline)')
+        (online ? '' : ' (salvo offline)'),
     )
   }
 
-  // Captura o instante do clique e pede confirmação de chegada
-  const requestFinish = (n: string) => {
-    const rName = state.riders.find((r) => r.num === n)?.name ?? `Piloto #${n}`
-    const run = state.runs.find((r) => r.num === n && r.status === 'track')
-    const runStage = run ? stages.find((s) => s.id === run.stageId) : null
-    // Captura o momento exato do clique com relógio sincronizado
+  // Captura o instante do toque e pede confirmação
+  const requestFinish = (runId: string, n: string) => {
     const capturedAt = Date.now() + api.getClockOffset()
+    navigator.vibrate?.(40)
+    const run = state.runs.find((r) => r.id === runId)
+    const runStage = run ? stages.find((s) => s.id === run.stageId) : null
     setConfirmTarget({
+      runId,
       num: n,
-      name: rName,
+      name: riderName(n),
       stageId: run?.stageId,
       stageName: runStage?.name,
       capturedAt,
@@ -100,24 +87,11 @@ export function Chegada({ state, act, online }: Props) {
     })
   }
 
-  // Executa o DNF após confirmação
   const executeDnf = async (target: DnfTarget) => {
     setDnfTarget(null)
-    return act(
-      () => api.dnfRun(target.id),
-      `Piloto #${target.num} (${target.name}) marcado como DNF`
-    )
+    return act(() => api.dnfRun(target.id), `Piloto #${target.num} (${target.name}) marcado como DNF`)
   }
 
-  // Pede confirmação de DNF
-  const requestDnf = (runId: string, riderNum: string) => {
-    const rName = state.riders.find((r) => r.num === riderNum)?.name ?? `Piloto #${riderNum}`
-    const run = state.runs.find((r) => r.id === runId)
-    const runStage = run ? stages.find((s) => s.id === run.stageId) : null
-    setDnfTarget({ id: runId, num: riderNum, name: rName, stageName: runStage?.name })
-  }
-
-  // Filtra atletas na pista (pode filtrar por especial ou todas)
   const track = state.runs
     .filter((r) => r.status === 'track' && (selectedFilterStage === 'all' || (r.stageId || stages[0]?.id) === selectedFilterStage))
     .sort((a, b) => a.start - b.start)
@@ -128,574 +102,276 @@ export function Chegada({ state, act, online }: Props) {
     .slice(0, 8)
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h5" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
-          <FlagRoundedIcon color="primary" /> Controle de Chegada
-        </Typography>
-        <Chip
-          label={`${track.length} na pista`}
-          size="small"
-          color={track.length > 0 ? 'primary' : 'default'}
-          variant="outlined"
-        />
-      </Box>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <PageHeader title="Chegada" subtitle={track.length > 0 ? 'Toque no piloto quando ele cruzar a linha' : undefined} />
 
-      {/* FILTRO DE ESPECIAL PARA O FISCAL DE CHEGADA */}
-      <Card sx={{ p: 1.5, bgcolor: 'background.paper' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-          <RouteRoundedIcon color="primary" sx={{ fontSize: 20 }} />
-          <Typography variant="subtitle2" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            Filtrar Linha de Chegada
-          </Typography>
-        </Box>
-
-        <Box sx={{ overflowX: 'auto', pb: 0.5 }}>
-          <ToggleButtonGroup
+      {stages.length > 1 && (
+        <StickyBar>
+          <ChipSelect
+            ariaLabel="Filtrar especial"
             value={selectedFilterStage}
-            exclusive
-            onChange={(_, val) => val && setSelectedFilterStage(val)}
-            size="small"
-            fullWidth
-            sx={{
-              '& .MuiToggleButton-root': {
-                fontWeight: 700,
-                fontSize: '0.78rem',
-                py: 0.8,
-                borderColor: 'rgba(255, 255, 255, 0.1)',
-                '&.Mui-selected': {
-                  bgcolor: 'error.main',
-                  color: '#ffffff',
-                  fontWeight: 900,
-                  '&:hover': { bgcolor: 'error.dark' },
-                },
-              },
-            }}
-          >
-            <ToggleButton value="all">Todas as Especiais</ToggleButton>
-            {stages.map((st) => (
-              <ToggleButton key={st.id} value={st.id}>
-                {st.name}
-              </ToggleButton>
-            ))}
-          </ToggleButtonGroup>
-        </Box>
-      </Card>
+            onChange={setSelectedFilterStage}
+            options={[{ value: 'all', label: 'Todas' }, ...stages.map((s) => ({ value: s.id, label: s.name }))]}
+          />
+        </StickyBar>
+      )}
 
-      {/* MODAL DE CONFIRMAÇÃO DE CHEGADA COM TEMPO CONGELADO */}
-      <Dialog
-        open={Boolean(confirmTarget)}
-        onClose={() => setConfirmTarget(null)}
-        maxWidth="xs"
-        fullWidth
-        slotProps={{
-          paper: {
-            sx: {
-              p: 1.5,
-              textAlign: 'center',
-            },
-          },
-        }}
-      >
-        {confirmTarget && (
-          <>
-            <DialogTitle sx={{ pb: 1 }}>
-              <Box
-                sx={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: '50%',
-                  bgcolor: 'rgba(239, 68, 68, 0.15)',
-                  color: 'error.main',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  margin: '0 auto 12px',
-                }}
-              >
-                <FlagRoundedIcon sx={{ fontSize: 32 }} />
-              </Box>
-              <Typography variant="h5" sx={{ fontWeight: 800 }}>
-                Confirmar Chegada?
-              </Typography>
-              <Typography variant="subtitle1" color="text.secondary" sx={{ mt: 0.5 }}>
-                Atleta <strong>#{confirmTarget.num} - {confirmTarget.name}</strong>
-              </Typography>
-              {confirmTarget.stageName && (
-                <Chip
-                  label={confirmTarget.stageName}
-                  color="primary"
-                  size="small"
-                  sx={{ mt: 1, fontWeight: 700 }}
-                />
-              )}
-            </DialogTitle>
-
-            <DialogContent sx={{ py: 1 }}>
-              <Box
-                sx={{
-                  p: 2,
-                  borderRadius: 3,
-                  bgcolor: 'background.default',
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  mb: 1.5,
-                }}
-              >
-                <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase' }}>
-                  Tempo capturado no clique
-                </Typography>
-                <Typography
-                  variant="h3"
+      <Section title="Na pista" count={track.length}>
+        {track.length === 0 ? (
+          <EmptyState icon={<SportsScoreRoundedIcon />} title="Pista livre" text="Nenhum piloto descendo nesta seleção." />
+        ) : (
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 1.5 }}>
+            {track.map((run, idx) => {
+              const st = stages.find((s) => s.id === run.stageId)
+              const expected = idx === 0
+              return (
+                <ButtonBase
+                  key={run.id}
+                  onClick={() => requestFinish(run.id, run.num)}
+                  aria-label={`Registrar chegada de ${riderName(run.num)}`}
                   sx={{
-                    fontFamily: 'monospace',
-                    fontWeight: 900,
-                    color: 'error.main',
-                    my: 0.5,
-                  }}
-                >
-                  {confirmTarget.startAt
-                    ? fmt(confirmTarget.capturedAt - confirmTarget.startAt)
-                    : clock(confirmTarget.capturedAt)}
-                </Typography>
-                {confirmTarget.startAt && (
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                    Se cancelar, o cronômetro continua: <LiveTimer start={confirmTarget.startAt} />
-                  </Typography>
-                )}
-              </Box>
-            </DialogContent>
-
-            <DialogActions sx={{ px: 2, pb: 2, gap: 1 }}>
-              <Button
-                variant="outlined"
-                color="inherit"
-                fullWidth
-                onClick={() => setConfirmTarget(null)}
-                sx={{ py: 1.2 }}
-              >
-                Cancelar
-              </Button>
-              <Button
-                variant="contained"
-                color="error"
-                fullWidth
-                onClick={() => void executeFinish(confirmTarget)}
-                sx={{ py: 1.2, fontWeight: 800 }}
-              >
-                CONFIRMAR
-              </Button>
-            </DialogActions>
-          </>
-        )}
-      </Dialog>
-
-      {/* MODAL DE CONFIRMAÇÃO DE DNF */}
-      <Dialog
-        open={Boolean(dnfTarget)}
-        onClose={() => setDnfTarget(null)}
-        maxWidth="xs"
-        fullWidth
-        slotProps={{
-          paper: {
-            sx: {
-              p: 1.5,
-              textAlign: 'center',
-              borderColor: 'error.main',
-            },
-          },
-        }}
-      >
-        {dnfTarget && (
-          <>
-            <DialogTitle sx={{ pb: 1 }}>
-              <Box
-                sx={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: '50%',
-                  bgcolor: 'rgba(239, 68, 68, 0.15)',
-                  color: 'error.main',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  margin: '0 auto 12px',
-                }}
-              >
-                <WarningRoundedIcon sx={{ fontSize: 32 }} />
-              </Box>
-              <Typography variant="h5" color="error.main" sx={{ fontWeight: 800 }}>
-                Confirmar DNF (Não Terminou)?
-              </Typography>
-            </DialogTitle>
-
-            <DialogContent sx={{ py: 1 }}>
-              <Typography variant="body1">
-                Tem certeza que deseja marcar <strong>#{dnfTarget.num} - {dnfTarget.name}</strong> como DNF
-                {dnfTarget.stageName ? ` na ${dnfTarget.stageName}` : ''}?
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                A descida será encerrada sem classificação de tempo.
-              </Typography>
-            </DialogContent>
-
-            <DialogActions sx={{ px: 2, pb: 2, gap: 1 }}>
-              <Button
-                variant="outlined"
-                color="inherit"
-                fullWidth
-                onClick={() => setDnfTarget(null)}
-                sx={{ py: 1.2 }}
-              >
-                Cancelar
-              </Button>
-              <Button
-                variant="contained"
-                color="error"
-                fullWidth
-                onClick={() => void executeDnf(dnfTarget)}
-                sx={{ py: 1.2, fontWeight: 800 }}
-              >
-                SIM, DNF
-              </Button>
-            </DialogActions>
-          </>
-        )}
-      </Dialog>
-
-      {/* MODAL DE GERENCIAR/INVALIDAR DESCIDA REGISTRADA */}
-      <Dialog
-        open={Boolean(runActionTarget)}
-        onClose={() => setRunActionTarget(null)}
-        maxWidth="xs"
-        fullWidth
-        slotProps={{
-          paper: {
-            sx: {
-              p: 2,
-              textAlign: 'center',
-            },
-          },
-        }}
-      >
-        {runActionTarget && (
-          <>
-            <DialogTitle sx={{ pb: 1 }}>
-              <Box
-                sx={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: '50%',
-                  bgcolor: 'rgba(245, 158, 11, 0.15)',
-                  color: 'warning.main',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  margin: '0 auto 12px',
-                }}
-              >
-                <WarningRoundedIcon sx={{ fontSize: 32 }} />
-              </Box>
-              <Typography variant="h6" sx={{ fontWeight: 800 }}>
-                Gerenciar Descida
-              </Typography>
-              <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 0.5 }}>
-                Atleta <strong>#{runActionTarget.num} - {runActionTarget.name}</strong>
-              </Typography>
-              <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, mt: 1 }}>
-                {runActionTarget.stageName && (
-                  <Chip label={runActionTarget.stageName} size="small" color="primary" variant="outlined" />
-                )}
-                <Chip
-                  label={runActionTarget.timeStr}
-                  size="small"
-                  color={runActionTarget.isDnf ? 'error' : 'secondary'}
-                  sx={{ fontWeight: 700 }}
-                />
-              </Box>
-            </DialogTitle>
-
-            <DialogContent sx={{ py: 1.5, display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Typography variant="body2" color="text.secondary">
-                Escolha a ação desejada para esta descida:
-              </Typography>
-
-              {/* OPÇÃO 1: MARCAR COMO DNF / DSQ */}
-              {!runActionTarget.isDnf ? (
-                <Button
-                  variant="outlined"
-                  color="warning"
-                  fullWidth
-                  onClick={async () => {
-                    const target = runActionTarget
-                    setRunActionTarget(null)
-                    await act(
-                      () => api.dnfRun(target.id),
-                      `Descida do piloto #${target.num} marcada como DNF / Desclassificado`
-                    )
-                  }}
-                  sx={{
-                    py: 1.2,
                     display: 'flex',
                     flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: 0.5,
+                    alignItems: 'stretch',
+                    textAlign: 'left',
+                    gap: 1,
+                    p: 1.5,
+                    minHeight: 132,
+                    borderRadius: radius.lg,
+                    bgcolor: tokens.surface,
+                    border: `2px solid ${expected ? tokens.finish : tokens.line}`,
+                    transition: 'transform 0.1s',
+                    '&:active': { transform: 'scale(0.97)', bgcolor: 'rgba(255, 77, 79, 0.12)' },
                   }}
                 >
-                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                    Marcar como DNF / Desclassificado
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                    <RiderPlate num={run.num} size="md" />
+                    {stages.length > 1 && (
+                      <Typography variant="caption" color="text.secondary" noWrap sx={{ fontWeight: 700, minWidth: 0 }}>
+                        {st?.name ?? 'Especial'}
+                      </Typography>
+                    )}
+                  </Box>
+                  <Typography
+                    sx={{
+                      fontWeight: 700,
+                      lineHeight: 1.25,
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden',
+                      flex: 1,
+                    }}
+                  >
+                    {riderName(run.num)}
                   </Typography>
-                  <Typography variant="caption" sx={{ textTransform: 'none', opacity: 0.85, fontSize: '0.72rem' }}>
-                    Mantém a descida gravada, mas exclui o tempo do ranking oficial.
-                  </Typography>
-                </Button>
-              ) : (
-                <Alert severity="warning" sx={{ textAlign: 'left', py: 0.5 }}>
-                  Esta descida já está marcada como <strong>DNF</strong> no ranking.
-                </Alert>
-              )}
+                  <Box sx={{ ...tabular, fontSize: '2rem', lineHeight: 1, fontWeight: 800, color: expected ? 'error.main' : 'text.primary' }}>
+                    <LiveTimer start={run.start} />
+                  </Box>
+                </ButtonBase>
+              )
+            })}
+          </Box>
+        )}
+      </Section>
 
-              {/* OPÇÃO 2: EXCLUIR DESCIDA */}
+      <Section title="Últimas chegadas">
+        {done.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            Nenhuma chegada registrada ainda.
+          </Typography>
+        ) : (
+          <ListCard>
+            {done.map((run) => {
+              const r = state.riders.find((x) => x.num === run.num)
+              const st = stages.find((s) => s.id === run.stageId)
+              const isDnf = run.status === 'dnf'
+              return (
+                <Box key={run.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, pl: 2, pr: 1, py: 1, minHeight: 60 }}>
+                  <RiderPlate num={run.num} size="sm" tone="muted" />
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography noWrap sx={{ fontWeight: 700 }}>
+                      {r?.name ?? `Piloto #${run.num}`}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+                      <Box component="span" sx={tabular}>
+                        {clock(run.end!)}
+                      </Box>
+                      {' · '}
+                      {st?.name ?? 'Especial'}
+                    </Typography>
+                  </Box>
+                  {isDnf ? (
+                    <Chip label="DNF" size="small" color="error" />
+                  ) : (
+                    <Typography sx={{ ...tabular, fontWeight: 900, color: 'secondary.main' }}>{fmt(run.end! - run.start)}</Typography>
+                  )}
+                  <IconButton
+                    aria-label={`Corrigir descida de ${r?.name ?? run.num}`}
+                    onClick={() =>
+                      setRunActionTarget({
+                        id: run.id,
+                        num: run.num,
+                        name: r?.name ?? `Piloto #${run.num}`,
+                        stageName: st?.name ?? 'Especial',
+                        timeStr: isDnf ? 'DNF' : fmt(run.end! - run.start),
+                        isDnf,
+                      })
+                    }
+                    sx={{ color: 'text.secondary' }}
+                  >
+                    <MoreHorizRoundedIcon />
+                  </IconButton>
+                </Box>
+              )
+            })}
+          </ListCard>
+        )}
+      </Section>
+
+      {/* CONFIRMAÇÃO DE CHEGADA COM TEMPO CONGELADO */}
+      <BottomSheet open={Boolean(confirmTarget)} onClose={() => setConfirmTarget(null)}>
+        {confirmTarget && (
+          <Box sx={{ textAlign: 'center' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1.5, mb: 0.5 }}>
+              <RiderPlate num={confirmTarget.num} size="lg" />
+              <Box sx={{ textAlign: 'left', minWidth: 0 }}>
+                <Typography variant="h6" noWrap sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+                  {confirmTarget.name}
+                </Typography>
+                {confirmTarget.stageName && (
+                  <Typography variant="body2" color="text.secondary">
+                    {confirmTarget.stageName}
+                  </Typography>
+                )}
+              </Box>
+            </Box>
+
+            <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
+              Tempo capturado no toque
+            </Typography>
+            <Typography sx={{ ...tabular, fontSize: 'clamp(3rem, 16vw, 4.5rem)', fontWeight: 900, color: 'error.main', lineHeight: 1.05 }}>
+              {confirmTarget.startAt ? fmt(confirmTarget.capturedAt - confirmTarget.startAt) : clock(confirmTarget.capturedAt)}
+            </Typography>
+            {confirmTarget.startAt && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                Cronômetro continua correndo: <Box component="span" sx={tabular}><LiveTimer start={confirmTarget.startAt} /></Box>
+              </Typography>
+            )}
+
+            <Button
+              fullWidth
+              size="large"
+              variant="contained"
+              color="error"
+              onClick={() => void executeFinish(confirmTarget)}
+              startIcon={<SportsScoreRoundedIcon />}
+              sx={{ mt: 3, minHeight: 60, fontSize: '1.15rem', fontWeight: 900 }}
+            >
+              CONFIRMAR CHEGADA
+            </Button>
+            <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+              <Button fullWidth variant="outlined" color="inherit" onClick={() => setConfirmTarget(null)}>
+                Cancelar
+              </Button>
+              {confirmTarget.runId && (
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  color="warning"
+                  startIcon={<BlockRoundedIcon />}
+                  onClick={() => {
+                    const t = confirmTarget
+                    setConfirmTarget(null)
+                    setDnfTarget({ id: t.runId!, num: t.num, name: t.name, stageName: t.stageName })
+                  }}
+                >
+                  Não terminou
+                </Button>
+              )}
+            </Box>
+          </Box>
+        )}
+      </BottomSheet>
+
+      <ConfirmDialog
+        open={Boolean(dnfTarget)}
+        onClose={() => setDnfTarget(null)}
+        onConfirm={() => dnfTarget && void executeDnf(dnfTarget)}
+        icon={<WarningRoundedIcon />}
+        tone="warning"
+        title="Marcar como DNF?"
+        confirmLabel="Sim, DNF"
+      >
+        <strong>
+          #{dnfTarget?.num} {dnfTarget?.name}
+        </strong>
+        {dnfTarget?.stageName ? ` na ${dnfTarget.stageName}` : ''}. A descida é encerrada sem tempo.
+      </ConfirmDialog>
+
+      {/* CORRIGIR DESCIDA JÁ REGISTRADA */}
+      <BottomSheet open={Boolean(runActionTarget)} onClose={() => setRunActionTarget(null)} title="Corrigir descida">
+        {runActionTarget && (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <RiderPlate num={runActionTarget.num} size="md" />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography noWrap sx={{ fontWeight: 800 }}>
+                  {runActionTarget.name}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {runActionTarget.stageName} · <Box component="span" sx={tabular}>{runActionTarget.timeStr}</Box>
+                </Typography>
+              </Box>
+            </Box>
+
+            {!runActionTarget.isDnf && (
               <Button
-                variant="outlined"
-                color="error"
                 fullWidth
+                variant="outlined"
+                color="warning"
+                startIcon={<BlockRoundedIcon />}
                 onClick={async () => {
                   const target = runActionTarget
                   setRunActionTarget(null)
-                  await act(
-                    () => api.undoRun(target.id),
-                    `Descida do piloto #${target.num} excluída. O piloto pode relargar.`
-                  )
+                  await act(() => api.dnfRun(target.id), `Descida do piloto #${target.num} marcada como DNF`)
                 }}
-                sx={{
-                  py: 1.2,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: 0.5,
-                }}
+                sx={{ justifyContent: 'flex-start', minHeight: 56 }}
               >
-                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                  Excluir Descida Definitivamente
-                </Typography>
-                <Typography variant="caption" sx={{ textTransform: 'none', opacity: 0.85, fontSize: '0.72rem' }}>
-                  Apaga a descida por completo do sistema e permite relargar nesta especial.
-                </Typography>
+                Marcar como DNF / desclassificado
               </Button>
-            </DialogContent>
-
-            <DialogActions sx={{ px: 2, pb: 1 }}>
-              <Button
-                variant="text"
-                color="inherit"
-                fullWidth
-                onClick={() => setRunActionTarget(null)}
-              >
-                Voltar
-              </Button>
-            </DialogActions>
-          </>
+            )}
+            <Button
+              fullWidth
+              variant="outlined"
+              color="error"
+              startIcon={<DeleteOutlineRoundedIcon />}
+              onClick={() => {
+                setDeleteTarget(runActionTarget)
+                setRunActionTarget(null)
+              }}
+              sx={{ justifyContent: 'flex-start', minHeight: 56 }}
+            >
+              Excluir descida (piloto pode relargar)
+            </Button>
+          </Box>
         )}
-      </Dialog>
+      </BottomSheet>
 
-      {/* NA PISTA AGORA */}
-      <Box>
-        <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 800, letterSpacing: '0.08em' }}>
-          Na pista agora ({track.length})
-        </Typography>
-
-        <List disablePadding sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-          {track.length === 0 && (
-            <Card sx={{ p: 3, textAlign: 'center' }}>
-              <Typography variant="body2" color="text.secondary">
-                Nenhum piloto descendo a trilha nesta seleção no momento
-              </Typography>
-            </Card>
-          )}
-
-          {track.map((run) => {
-            const r = state.riders.find((x) => x.num === run.num)
-            const st = stages.find((s) => s.id === run.stageId)
-            return (
-              <Card
-                key={run.id}
-                sx={{
-                  p: 1.5,
-                  border: '1px solid rgba(56, 189, 248, 0.25)',
-                  bgcolor: 'background.paper',
-                }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    <Avatar
-                      sx={{
-                        bgcolor: 'primary.main',
-                        color: 'primary.contrastText',
-                        fontWeight: 900,
-                        width: 44,
-                        height: 44,
-                      }}
-                    >
-                      #{run.num}
-                    </Avatar>
-                    <Box>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
-                        {r?.name ?? `Piloto #${run.num}`}
-                      </Typography>
-                      <Box sx={{ display: 'flex', gap: 0.6, mt: 0.5, flexWrap: 'wrap' }}>
-                        <Chip
-                          label={st?.name ?? 'Especial'}
-                          size="small"
-                          color="secondary"
-                          sx={{ height: 20, fontSize: '0.68rem', fontWeight: 700 }}
-                        />
-                        <Chip
-                          label={r?.cat ?? 'Geral'}
-                          size="small"
-                          sx={{ height: 20, fontSize: '0.68rem' }}
-                        />
-                      </Box>
-                    </Box>
-                  </Box>
-
-                  {/* Relógio em tempo real da descida */}
-                  <Box
-                    sx={{
-                      px: 1.5,
-                      py: 0.5,
-                      bgcolor: 'background.default',
-                      borderRadius: 2,
-                      fontFamily: 'monospace',
-                      fontWeight: 800,
-                      fontSize: '1.25rem',
-                      color: 'primary.main',
-                      border: '1px solid rgba(56, 189, 248, 0.2)',
-                    }}
-                  >
-                    <LiveTimer start={run.start} />
-                  </Box>
-                </Box>
-
-                {/* Botões de Ação para cada piloto na pista */}
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <Button
-                    variant="outlined"
-                    color="warning"
-                    size="small"
-                    onClick={() => requestDnf(run.id, run.num)}
-                    sx={{ flex: 1, py: 1, fontWeight: 700 }}
-                  >
-                    DNF
-                  </Button>
-                  <Button
-                    variant="contained"
-                    color="error"
-                    size="medium"
-                    onClick={() => requestFinish(run.num)}
-                    startIcon={<FlagRoundedIcon />}
-                    sx={{ flex: 2, py: 1, fontWeight: 800, fontSize: '1rem' }}
-                  >
-                    CHEGOU
-                  </Button>
-                </Box>
-              </Card>
-            )
-          })}
-        </List>
-      </Box>
-
-      {/* ÚLTIMAS CHEGADAS */}
-      <Box>
-        <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 800, letterSpacing: '0.08em' }}>
-          Últimas chegadas registradas
-        </Typography>
-
-        <List disablePadding sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {done.length === 0 && (
-            <Card sx={{ p: 2, textAlign: 'center' }}>
-              <Typography variant="body2" color="text.secondary">
-                Nenhuma chegada concluída ainda
-              </Typography>
-            </Card>
-          )}
-
-          {done.map((run) => {
-            const r = state.riders.find((x) => x.num === run.num)
-            const st = stages.find((s) => s.id === run.stageId)
-            const isDnf = run.status === 'dnf'
-            return (
-              <Card key={run.id} sx={{ bgcolor: 'background.paper' }}>
-                <ListItem
-                  secondaryAction={
-                    <IconButton
-                      edge="end"
-                      color="inherit"
-                      size="small"
-                      onClick={() =>
-                        setRunActionTarget({
-                          id: run.id,
-                          num: run.num,
-                          name: r?.name ?? `Piloto #${run.num}`,
-                          stageName: st?.name ?? 'Especial',
-                          timeStr: isDnf ? 'DNF' : fmt(run.end! - run.start),
-                          isDnf,
-                        })
-                      }
-                      title="Gerenciar / Invalidar descida"
-                      sx={{ color: 'text.secondary', '&:hover': { color: 'warning.main' } }}
-                    >
-                      <MoreVertRoundedIcon fontSize="small" />
-                    </IconButton>
-                  }
-                >
-                  <ListItemAvatar>
-                    <Avatar
-                      sx={{
-                        bgcolor: isDnf ? 'rgba(239, 68, 68, 0.15)' : 'rgba(34, 197, 94, 0.15)',
-                        color: isDnf ? 'error.main' : 'secondary.main',
-                        fontWeight: 800,
-                        fontSize: '0.9rem',
-                      }}
-                    >
-                      #{run.num}
-                    </Avatar>
-                  </ListItemAvatar>
-                  <ListItemText
-                    primary={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <span>{r?.name ?? `Piloto #${run.num}`}</span>
-                        <Chip
-                          label={st?.name ?? 'Especial'}
-                          size="small"
-                          color="primary"
-                          variant="outlined"
-                          sx={{ height: 18, fontSize: '0.65rem' }}
-                        />
-                        {isDnf ? (
-                          <Chip label="DNF" size="small" color="error" sx={{ height: 20, fontSize: '0.7rem' }} />
-                        ) : (
-                          <Typography
-                            component="span"
-                            sx={{
-                              fontFamily: 'monospace',
-                              fontWeight: 800,
-                              color: 'secondary.main',
-                              fontSize: '1rem',
-                            }}
-                          >
-                            {fmt(run.end! - run.start)}
-                          </Typography>
-                        )}
-                      </Box>
-                    }
-                    secondary={<Typography variant="caption" color="text.secondary">{`Chegou às ${clock(run.end!)} · ${r?.cat ?? 'Geral'}`}</Typography>}
-                  />
-                </ListItem>
-              </Card>
-            )
-          })}
-        </List>
-      </Box>
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => {
+          const target = deleteTarget
+          setDeleteTarget(null)
+          if (target) void act(() => api.undoRun(target.id), `Descida do piloto #${target.num} excluída. O piloto pode relargar.`)
+        }}
+        icon={<DeleteOutlineRoundedIcon />}
+        title="Excluir descida?"
+        confirmLabel="Excluir"
+      >
+        O tempo de #{deleteTarget?.num} {deleteTarget?.name} na {deleteTarget?.stageName} será apagado.
+      </ConfirmDialog>
     </Box>
   )
 }
