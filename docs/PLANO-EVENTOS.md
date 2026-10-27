@@ -181,18 +181,23 @@ Cada etapa deixa o app funcionando. Se faltar tempo antes de uma prova, as etapa
 
   | Rota | Tela |
   |---|---|
-  | `#/` | Início |
+  | `#/` | Página inicial: acompanhar uma prova, fiscal ou organizador |
+  | `#/eventos` | Lista de eventos |
   | `#/e/K7MQ2` | Público do evento |
   | `#/e/K7MQ2/fiscal` | Fiscal e organizador do evento |
   | `#/organizar` | Área do organizador |
 
   O antigo `#admin` leva às telas do fiscal do evento em uso. O botão Voltar navega entre as telas.
-- **Início:**
+- **Página inicial** (`#/`), com três entradas:
+  - **Acompanhar uma prova:** leva à lista de eventos e mostra quantos estão abertos ou quais são de hoje;
+  - **Sou fiscal:** abre a entrada com o código do fiscal; quem já entrou continua direto no evento;
+  - **Organizador:** abre o login de organizador e, depois de entrar, a área do organizador.
+
+  O botão "Fiscal" do topo some nessa página, porque as entradas já estão nela. Quem chega pelo link ou QR code de um evento continua indo direto para ele.
+- **Lista de eventos** (`#/eventos`):
   - eventos abertos (os de hoje primeiro, marcados com "Hoje") e encerrados;
   - campo "Tenho um código";
   - link para a área do organizador.
-
-  Na primeira abertura, se houver um evento só em andamento, o app vai direto para ele, como antes.
 - **Área do organizador:** cria, edita (nome, data, local e situação: rascunho, aberto ou encerrado), duplica e exclui eventos. Para excluir, é preciso digitar o nome do evento. A confirmação mostra quantos inscritos e tempos serão apagados e, se houver tempos, oferece encerrar em vez de excluir. O painel de edição mostra o nome do evento no título. **Divulgar** mostra o QR code e o link do evento, com copiar e compartilhar.
 - **Topo:** o nome do evento aparece abaixo de "Race Timer"; o logo volta ao início. No menu do organizador, o item **Eventos** abre a área do organizador.
 - **Modo local:** guarda vários eventos no aparelho, com as mesmas telas. Os dados que já existiam ficam no evento "Prova atual" (código `LOCAL`).
