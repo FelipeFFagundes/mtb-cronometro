@@ -2,7 +2,8 @@ import type { Rider } from '../types'
 
 /*
  * Importação de pilotos por planilha CSV.
- * Colunas: numero, nome, categoria (cabeçalho obrigatório, em qualquer ordem).
+ * Colunas: numero, nome, categoria (cabeçalho obrigatório, em qualquer ordem) e, opcional, equipe.
+ * Sem a coluna equipe, a equipe já cadastrada do atleta não muda.
  * Aceita ";" (padrão do Excel em português) ou "," e campos entre aspas.
  */
 
@@ -12,6 +13,7 @@ const HEADERS = {
   num: ['numero', 'num', 'n', 'no', 'placa'],
   name: ['nome', 'piloto', 'atleta'],
   cat: ['categoria', 'cat'],
+  team: ['equipe', 'team'],
 }
 
 export interface CsvIssue {
@@ -98,6 +100,7 @@ export function readRidersCsv(text: string): CsvImport {
   const iNum = col(HEADERS.num)
   const iName = col(HEADERS.name)
   const iCat = col(HEADERS.cat)
+  const iTeam = col(HEADERS.team)
   if (iNum === -1 || iName === -1 || iCat === -1) {
     const missing = [iNum === -1 && 'numero', iName === -1 && 'nome', iCat === -1 && 'categoria'].filter(Boolean).join(', ')
     return { riders, categories, issues: [{ line: headerIdx + 1, message: `Cabeçalho sem a coluna: ${missing}` }] }
@@ -134,7 +137,8 @@ export function readRidersCsv(text: string): CsvImport {
     }
     if (name.length > NAME_MAX) issues.push({ line, message: `#${num}: nome cortado em ${NAME_MAX} caracteres`, warning: true })
     seen.set(num, line)
-    riders.push({ num, name: name.slice(0, NAME_MAX), cat })
+    const team = iTeam === -1 ? undefined : (cells[iTeam] ?? '').trim().replace(/\s+/g, ' ').slice(0, 40)
+    riders.push({ num, name: name.slice(0, NAME_MAX), cat, ...(team !== undefined && { team }) })
   }
 
   return { riders, categories, issues }

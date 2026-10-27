@@ -18,6 +18,28 @@ export interface Rider {
   num: string
   name: string
   cat: string
+  /** Equipe do atleta (vale para todos os eventos dele). */
+  team?: string
+  /** Atleta da base a que esta inscrição pertence. */
+  athleteId?: string
+}
+
+/** Atleta da base, com quantos eventos já correu. */
+export interface AthleteSummary {
+  id: string
+  name: string
+  team?: string
+  city?: string
+  events: number
+}
+
+/** Participação de um atleta em um evento. */
+export interface AthleteEntry {
+  eventId: string
+  eventName: string
+  startsOn: string
+  num: string
+  category: string
 }
 
 export interface StartGridItem {
@@ -157,6 +179,10 @@ export interface Api {
   deleteEvent(id: string): Promise<void>
   /** Quantos inscritos e tempos o evento tem (para confirmar a exclusão). */
   getEventStats(id: string): Promise<{ riders: number; runs: number }>
+  /** Atletas da base cujo nome contém o texto (sem diferenciar acentos). */
+  searchAthletes(query: string): Promise<AthleteSummary[]>
+  /** Eventos de que o atleta participou (mais recentes primeiro). */
+  getAthleteHistory(athleteId: string): Promise<AthleteEntry[]>
   addCategory(name: string): Promise<void>
   updateCategory(oldName: string, newName: string): Promise<void>
   removeCategory(name: string): Promise<void>

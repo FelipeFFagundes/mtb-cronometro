@@ -1,4 +1,5 @@
-import type { Access, Api, AppState, EventInfo, Rider, Run, Stage, StartGridItem } from '../types'
+import type { Access, Api, AppState, AthleteEntry, AthleteSummary, EventInfo, Rider, Run, Stage, StartGridItem } from '../types'
+import { athleteKey } from '../lib/athletes'
 import { DEFAULT_CATEGORIES, DEFAULT_STAGES } from '../types'
 import { DEMO_RIDERS, DEMO_STAGES } from './demo'
 
@@ -79,7 +80,8 @@ function read(): AppState {
         ...r,
         stageId: r.stageId || stages[0]?.id || 'stage-1',
       }))
-      const riders = parsed.riders || []
+      // No modo local o atleta é identificado pelo nome (sem acentos), como o vínculo automático do banco
+      const riders = (parsed.riders || []).map((r) => ({ ...r, athleteId: athleteKey(r.name) }))
       const grid = (parsed.grid ?? legacyGrid()).map((i) => ({ ...i, stageId: i.stageId || stages[0]?.id }))
       return {
         event,
@@ -313,6 +315,37 @@ export function createLocalApi(): Api {
       write(s)
     },
 
+    async searchAthletes(query) {
+      const q = athleteKey(query)
+      if (q.length < 2) return []
+      const found = new Map<string, AthleteSummary>()
+      for (const ev of localEvents()) {
+        const raw = localStorage.getItem(stateKey(ev.id))
+        const riders = raw ? ((JSON.parse(raw) as Partial<AppState>).riders ?? []) : []
+        for (const r of riders) {
+          const key = athleteKey(r.name)
+          if (!key.includes(q)) continue
+          const cur = found.get(key)
+          found.set(key, { id: key, name: cur?.name ?? r.name, team: cur?.team ?? r.team, events: (cur?.events ?? 0) + 1 })
+        }
+      }
+      return [...found.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')).slice(0, 8)
+    },
+
+    async getAthleteHistory(athleteId) {
+      const list: AthleteEntry[] = []
+      for (const ev of localEvents()) {
+        const raw = localStorage.getItem(stateKey(ev.id))
+        const riders = raw ? ((JSON.parse(raw) as Partial<AppState>).riders ?? []) : []
+        for (const r of riders) {
+          if (athleteKey(r.name) === athleteId) {
+            list.push({ eventId: ev.id, eventName: ev.name, startsOn: ev.startsOn, num: r.num, category: r.cat })
+          }
+        }
+      }
+      return list.sort((a, b) => b.startsOn.localeCompare(a.startsOn))
+    },
+
     async addRider(rider) {
       const s = read()
       if (s.riders.some((r) => r.num === rider.num)) throw new Error(`Número #${rider.num} já existe`)
@@ -356,7 +389,8 @@ export function createLocalApi(): Api {
         if (idx === -1) {
           s.riders.push(rider)
         } else {
-          s.riders[idx] = rider
+          // Planilha sem coluna de equipe mantém a equipe que já estava
+          s.riders[idx] = { ...rider, team: rider.team ?? s.riders[idx].team }
           updated++
         }
       }

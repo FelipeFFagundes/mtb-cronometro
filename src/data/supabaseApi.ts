@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { Access, Api, AppState, EventInfo, MarshalAccessInfo, NewEvent, PendingOp, Role, Run, RunStatus, SyncStatus, Stage, StartGridItem } from '../types'
+import type { Access, Api, AppState, AthleteEntry, AthleteSummary, EventInfo, MarshalAccessInfo, NewEvent, PendingOp, Rider, Role, Run, RunStatus, SyncStatus, Stage, StartGridItem } from '../types'
 import { DEFAULT_CATEGORIES, DEFAULT_STAGES } from '../types'
 import { DEMO_RIDERS, DEMO_STAGES } from './demo'
 import { clock } from '../lib/time'
@@ -51,6 +51,15 @@ interface GridRow {
   rider_num: string
   position: number
   scheduled_at: string
+}
+
+interface RiderRow {
+  num: string
+  name: string
+  category: string
+  athlete_id: string | null
+  // Equipe vem do atleta (embutido pela chave estrangeira)
+  athletes: { team: string | null } | { team: string | null }[] | null
 }
 
 interface EventRow {
@@ -292,7 +301,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       if (!event) return false
       const ev = event.id
       const [riders, runs, categories, stages, grid] = await Promise.all([
-        sb.from('riders').select('num,name,category').eq('event_id', ev).order('num'),
+        sb.from('riders').select('num,name,category,athlete_id,athletes(team)').eq('event_id', ev).order('num'),
         sb.from('runs').select('id,rider_num,stage_id,started_at,finished_at,status').eq('event_id', ev).order('started_at'),
         sb.from('categories').select('name').eq('event_id', ev).order('name'),
         sb.from('stages').select('id,name,position').eq('event_id', ev).order('position'),
@@ -325,7 +334,13 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
             : [...DEFAULT_STAGES]
       const firstStageId = stageList[0]?.id ?? 'stage-1'
 
-      const riderList = (riders.data ?? []).map((r) => ({ num: r.num, name: r.name, cat: r.category }))
+      const riderList: Rider[] = ((riders.data ?? []) as RiderRow[]).map((r) => ({
+        num: r.num,
+        name: r.name,
+        cat: r.category,
+        team: (Array.isArray(r.athletes) ? r.athletes[0] : r.athletes)?.team ?? undefined,
+        athleteId: r.athlete_id ?? undefined,
+      }))
 
       // Grade: nome e categoria vêm do cadastro do piloto; ordem = especial, depois posição
       const stageIndex = (id: string) => stageList.findIndex((s) => s.id === id)
@@ -473,6 +488,13 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     saveQueue()
     emit()
     void flush()
+  }
+
+  /** Grava a equipe dos atletas (fica no atleta, vale para todos os eventos dele). Só os que trazem `team`. */
+  async function setTeams(riders: Rider[]) {
+    const items = riders.filter((r) => r.team !== undefined).map((r) => ({ num: r.num, team: r.team ?? '' }))
+    if (items.length === 0) return
+    ensure(await sb.rpc('set_teams', { p_event: ev(), p_items: items }))
   }
 
   /** Evento em uso para gravar cadastros; sem ele (nunca carregou) não dá para gravar. */
@@ -798,10 +820,36 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       await pull()
     },
 
+    async searchAthletes(query): Promise<AthleteSummary[]> {
+      if (query.trim().length < 2) return []
+      const r = await sb.rpc('search_athletes', { p_query: query, p_limit: 8 })
+      ensure(r)
+      return ((r.data ?? []) as { id: string; name: string; team: string | null; city: string | null; events: number }[]).map((a) => ({
+        id: a.id,
+        name: a.name,
+        team: a.team ?? undefined,
+        city: a.city ?? undefined,
+        events: a.events,
+      }))
+    },
+
+    async getAthleteHistory(athleteId): Promise<AthleteEntry[]> {
+      const r = await sb.from('riders').select('num,category,event_id,events!riders_event_fkey(name,starts_on)').eq('athlete_id', athleteId)
+      ensure(r)
+      type Row = { num: string; category: string; event_id: string; events: { name: string; starts_on: string } | { name: string; starts_on: string }[] | null }
+      return ((r.data ?? []) as Row[])
+        .map((row) => {
+          const e = Array.isArray(row.events) ? row.events[0] : row.events
+          return { eventId: row.event_id, eventName: e?.name ?? 'Evento', startsOn: e?.starts_on ?? '', num: row.num, category: row.category }
+        })
+        .sort((a, b) => b.startsOn.localeCompare(a.startsOn))
+    },
+
     async addRider(rider) {
       const r = await sb.from('riders').insert({ event_id: ev(), num: rider.num, name: rider.name, category: rider.cat })
       if (r.error?.code === '23505') throw new Error(`Número #${rider.num} já existe`)
       ensure(r)
+      await setTeams([rider])
       await pull()
     },
 
@@ -814,6 +862,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
 
       if (r.error?.code === '23505') throw new Error(`Número #${updated.num} já está em uso por outro piloto`)
       ensure(r)
+      await setTeams([updated])
       await pull()
     },
 
@@ -834,6 +883,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
             .from('riders')
             .upsert(riders.map((r) => ({ event_id: ev(), num: r.num, name: r.name, category: r.cat })), { onConflict: 'event_id,num' }),
         )
+        await setTeams(riders)
       }
       await pull()
       const updated = riders.filter((r) => known.has(r.num)).length

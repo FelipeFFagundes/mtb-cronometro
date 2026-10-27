@@ -383,11 +383,94 @@ begin
       select v_id, id, name, position from stages where event_id = p_copy_from;
     insert into categories (event_id, name)
       select v_id, name from categories where event_id = p_copy_from;
-    insert into riders (event_id, num, name, category)
-      select v_id, num, name, category from riders where event_id = p_copy_from;
+    insert into riders (event_id, num, name, category, athlete_id)
+      select v_id, num, name, category, athlete_id from riders where event_id = p_copy_from;
   end if;
   return v_id;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- Base de atletas
+--
+-- Cada pessoa é cadastrada uma vez em athletes (nome, equipe, cidade). A inscrição em um
+-- evento continua em riders (placa, nome e categoria naquele evento) e aponta para o atleta.
+-- O vínculo é automático pelo nome, ignorando acentos, maiúsculas e espaços repetidos:
+-- inscrever "joao da silva" num evento novo reaproveita o "João da Silva" que já existe.
+-- Homônimos (duas pessoas com o mesmo nome) ficam no mesmo atleta.
+-- ---------------------------------------------------------------------------
+create table if not exists athletes (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  team       text,
+  city       text,
+  created_at timestamptz not null default now()
+);
+
+-- Nome para comparar: sem acentos, minúsculo, espaços simples ("  João  DA Silva" → "joao da silva")
+create or replace function athlete_key(p_name text) returns text
+language sql immutable as $$
+  select regexp_replace(
+    lower(translate(trim(coalesce(p_name, '')),
+      'ÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑáàâãäéèêëíìîïóòôõöúùûüçñ',
+      'AAAAAEEEEIIIIOOOOOUUUUCNaaaaaeeeeiiiiooooouuuucn')),
+    '\s+', ' ', 'g')
+$$;
+
+create index if not exists athletes_key_idx on athletes (athlete_key(name));
+
+alter table riders add column if not exists athlete_id uuid;
+alter table riders drop constraint if exists riders_athlete_fkey;
+alter table riders add constraint riders_athlete_fkey foreign key (athlete_id) references athletes(id) on delete set null;
+create index if not exists riders_athlete_idx on riders (athlete_id);
+
+-- Liga a inscrição ao atleta de mesmo nome (o mais antigo) ou cria o atleta
+create or replace function link_rider_athlete() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_id uuid;
+begin
+  -- Mesmo nome e já ligado: nada a fazer (ex.: só mudou a placa ou a categoria)
+  if new.athlete_id is not null and (tg_op = 'INSERT' or athlete_key(new.name) = athlete_key(old.name)) then
+    return new;
+  end if;
+  select id into v_id from athletes where athlete_key(name) = athlete_key(new.name) order by created_at, id limit 1;
+  if v_id is null then
+    insert into athletes (name) values (trim(new.name)) returning id into v_id;
+  end if;
+  new.athlete_id := v_id;
+  return new;
+end $$;
+
+drop trigger if exists riders_link_athlete on riders;
+create trigger riders_link_athlete before insert or update of name, athlete_id on riders
+  for each row execute function link_rider_athlete();
+
+-- Inscrições que ainda não têm atleta (bancos anteriores à base)
+update riders set athlete_id = null where athlete_id is null;
+
+-- Equipe dos atletas inscritos no evento (p_items: [{"num":"12","team":"Equipe X"}]). Só organizador.
+create or replace function set_teams(p_event uuid, p_items jsonb) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_organizer() then
+    raise exception 'Só o organizador pode mudar a equipe' using errcode = 'MTB08';
+  end if;
+  update athletes a
+     set team = nullif(trim(i->>'team'), '')
+    from riders r, jsonb_array_elements(coalesce(p_items, '[]'::jsonb)) as i
+   where r.event_id = p_event and r.num = i->>'num' and a.id = r.athlete_id and i ? 'team';
+end $$;
+
+-- Busca na base pelo nome (sem acentos), com quantos eventos cada atleta já correu
+create or replace function search_athletes(p_query text, p_limit int default 8)
+returns table (id uuid, name text, team text, city text, events int)
+language sql stable as $$
+  select a.id, a.name, a.team, a.city, (select count(*)::int from riders r where r.athlete_id = a.id)
+    from athletes a
+   where athlete_key(a.name) like '%' || athlete_key(p_query) || '%'
+   order by (athlete_key(a.name) like athlete_key(p_query) || '%') desc, a.name
+   limit least(greatest(coalesce(p_limit, 8), 1), 50)
+$$;
 
 -- Horário do servidor (o app usa para calcular o offset do relógio do celular)
 create or replace function server_now() returns timestamptz
@@ -609,13 +692,13 @@ begin
     select policyname, tablename from pg_policies
      where schemaname = 'public'
        and tablename in ('events', 'categories', 'riders', 'stages', 'runs', 'start_grid',
-                         'organizers', 'event_marshals', 'event_secrets', 'join_attempts')
+                         'organizers', 'event_marshals', 'event_secrets', 'join_attempts', 'athletes')
   loop
     execute format('drop policy %I on %I', p.policyname, p.tablename);
   end loop;
 
   foreach t in array array['events', 'categories', 'riders', 'stages', 'runs', 'start_grid',
-                           'organizers', 'event_marshals', 'event_secrets', 'join_attempts'] loop
+                           'organizers', 'event_marshals', 'event_secrets', 'join_attempts', 'athletes'] loop
     execute format('alter table %I enable row level security', t);
   end loop;
 
@@ -637,6 +720,12 @@ begin
   -- Cada um vê só a própria linha; event_secrets e join_attempts ficam sem regra (só as funções acessam)
   create policy "ver o próprio cadastro de organizador" on organizers for select to authenticated using (user_id = auth.uid());
   create policy "ver os próprios acessos de fiscal" on event_marshals for select to authenticated using (user_id = auth.uid());
+
+  -- Base de atletas: nomes já aparecem nos resultados; só o organizador cadastra e edita
+  create policy "ler atletas" on athletes for select to anon, authenticated using (true);
+  create policy "organizador cria atletas" on athletes for insert to authenticated with check (is_organizer());
+  create policy "organizador altera atletas" on athletes for update to authenticated using (is_organizer()) with check (is_organizer());
+  create policy "organizador exclui atletas" on athletes for delete to authenticated using (is_organizer());
 end $$;
 
 -- Tempo real (ignora tabelas que já estão na publicação)
@@ -644,7 +733,7 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['events', 'categories', 'riders', 'stages', 'runs', 'start_grid'] loop
+  foreach t in array array['events', 'categories', 'riders', 'stages', 'runs', 'start_grid', 'athletes'] loop
     begin
       execute format('alter publication supabase_realtime add table %I', t);
     exception when duplicate_object then null;
