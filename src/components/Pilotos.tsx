@@ -7,6 +7,7 @@ import { BOTTOMNAV_H, tokens } from '../theme'
 import { BottomSheet, ChipSelect, ConfirmDialog, EmptyState, ListCard, PageHeader, RiderPlate, Section } from './ui'
 import { StartGridList } from './StartGridList'
 import { ImportCsv } from './ImportCsv'
+import { MarshalAccess } from './MarshalAccess'
 import {
   Box,
   Button,
@@ -41,7 +42,7 @@ interface Props {
   act: Act
 }
 
-type SubTab = 'atletas' | 'categorias' | 'especiais' | 'grade'
+type SubTab = 'atletas' | 'categorias' | 'especiais' | 'grade' | 'acesso'
 
 const noCategory = (cat: string) => !cat || cat === 'Sem Categoria'
 
@@ -466,6 +467,7 @@ export function Pilotos({ state, act }: Props) {
         <Tab value="categorias" label="Categorias" />
         <Tab value="especiais" label="Especiais" />
         <Tab value="grade" label="Grade" />
+        {api.mode === 'supabase' && <Tab value="acesso" label="Acesso" />}
       </Tabs>
 
       {/* ============ ATLETAS ============ */}
@@ -755,6 +757,8 @@ export function Pilotos({ state, act }: Props) {
           </Typography>
         </>
       )}
+
+      {tab === 'acesso' && <MarshalAccess state={state} act={act} />}
 
       {/* ============ PAINÉIS E CONFIRMAÇÕES ============ */}
       <ImportCsv open={importOpen} onClose={() => setImportOpen(false)} state={state} act={act} />

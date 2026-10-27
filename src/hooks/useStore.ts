@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../data'
-import type { AppState, PendingOp, SyncStatus } from '../types'
+import type { Access, AppState, PendingOp, SyncStatus } from '../types'
 
 export function useStore() {
   const [state, setState] = useState<AppState>({ riders: [], runs: [], categories: [], stages: [], grid: [] })
   const [sync, setSync] = useState<SyncStatus>(() => api.getSync())
   const [pending, setPending] = useState<PendingOp[]>(() => api.getPending())
+  const [access, setAccess] = useState<Access>(() => api.getAccess())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -14,6 +15,7 @@ export function useStore() {
       setState(await api.load())
       setSync(api.getSync())
       setPending(api.getPending())
+      setAccess(api.getAccess())
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar dados')
@@ -27,5 +29,5 @@ export function useStore() {
     return api.subscribe(() => void refresh())
   }, [refresh])
 
-  return { state, sync, pending, loading, error, refresh }
+  return { state, sync, pending, access, loading, error, refresh }
 }
