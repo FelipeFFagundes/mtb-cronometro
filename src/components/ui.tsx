@@ -256,6 +256,7 @@ export function ConfirmDialog({
   confirmLabel,
   tone = 'error',
   icon,
+  confirmDisabled = false,
 }: {
   open: boolean
   onClose: () => void
@@ -265,6 +266,8 @@ export function ConfirmDialog({
   confirmLabel: string
   tone?: 'error' | 'warning' | 'primary'
   icon?: ReactNode
+  /** Mantém o botão de confirmar desligado (ex.: até digitar uma confirmação). */
+  confirmDisabled?: boolean
 }) {
   useBackClose(open, onClose)
   return (
@@ -281,7 +284,7 @@ export function ConfirmDialog({
           <Button variant="outlined" color="inherit" fullWidth onClick={onClose}>
             Cancelar
           </Button>
-          <Button variant="contained" color={tone} fullWidth onClick={onConfirm}>
+          <Button variant="contained" color={tone} fullWidth onClick={onConfirm} disabled={confirmDisabled}>
             {confirmLabel}
           </Button>
         </Box>

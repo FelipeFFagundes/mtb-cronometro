@@ -3,6 +3,9 @@ import { DEFAULT_CATEGORIES, DEFAULT_STAGES } from '../types'
 import { DEMO_RIDERS, DEMO_STAGES } from './demo'
 
 const KEY = 'mtb-cronometro-v3'
+/** Lista de eventos e evento em uso no aparelho. Os dados de cada evento ficam em KEY (o primeiro, "local") ou KEY:id. */
+const EVENTS_KEY = 'mtb-local-events-v1'
+const CURRENT_KEY = 'mtb-local-event-v1'
 /** Modo local: o PIN libera o aparelho como organizador (protótipo, sem servidor para conferir). */
 const AUTH_KEY = 'mtb-admin-auth-v1'
 const PIN = (import.meta.env.VITE_ADMIN_PIN as string | undefined) || '1234'
@@ -17,9 +20,38 @@ function withRiderInfo(grid: StartGridItem[], riders: Rider[]): StartGridItem[] 
   })
 }
 
-/** No modo local há um evento só (vários eventos chegam com as telas de eventos). */
+/** Evento inicial do modo local: guarda os dados que já existiam antes dos eventos. */
 function localEvent(): EventInfo {
-  return { id: 'local', name: 'Prova atual', startsOn: new Date().toISOString().slice(0, 10), status: 'aberto' }
+  return { id: 'local', name: 'Prova atual', startsOn: new Date().toISOString().slice(0, 10), status: 'aberto', publicCode: 'LOCAL' }
+}
+
+function localEvents(): EventInfo[] {
+  try {
+    const list = JSON.parse(localStorage.getItem(EVENTS_KEY) ?? 'null') as EventInfo[] | null
+    if (list && list.length > 0) return list
+  } catch {
+    /* lista corrompida: recomeça com o evento inicial */
+  }
+  return [localEvent()]
+}
+
+function saveEvents(list: EventInfo[]) {
+  localStorage.setItem(EVENTS_KEY, JSON.stringify(list))
+}
+
+function currentEventId(): string {
+  const list = localEvents()
+  const stored = localStorage.getItem(CURRENT_KEY)
+  return list.some((e) => e.id === stored) ? stored! : list[0].id
+}
+
+const stateKey = (id: string) => (id === 'local' ? KEY : `${KEY}:${id}`)
+
+/** Código público de 5 caracteres, sem os ambíguos (0/O, 1/I). */
+function randomCode(): string {
+  const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
+  const bytes = crypto.getRandomValues(new Uint8Array(5))
+  return Array.from(bytes, (b) => alphabet[b % 32]).join('')
 }
 
 function legacyGrid(): StartGridItem[] {
@@ -32,8 +64,11 @@ function legacyGrid(): StartGridItem[] {
 }
 
 function read(): AppState {
+  const events = localEvents()
+  const id = currentEventId()
+  const event = events.find((e) => e.id === id)
   try {
-    const raw = localStorage.getItem(KEY)
+    const raw = localStorage.getItem(stateKey(id))
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<AppState>
       const stages: Stage[] =
@@ -47,7 +82,8 @@ function read(): AppState {
       const riders = parsed.riders || []
       const grid = (parsed.grid ?? legacyGrid()).map((i) => ({ ...i, stageId: i.stageId || stages[0]?.id }))
       return {
-        event: parsed.event ?? localEvent(),
+        event,
+        events,
         riders,
         runs,
         categories,
@@ -58,7 +94,7 @@ function read(): AppState {
   } catch {
     /* ignora dados corrompidos */
   }
-  return { event: localEvent(), riders: [], runs: [], categories: [...DEFAULT_CATEGORIES], stages: [...DEFAULT_STAGES], grid: [] }
+  return { event, events, riders: [], runs: [], categories: [...DEFAULT_CATEGORIES], stages: [...DEFAULT_STAGES], grid: [] }
 }
 
 export function createLocalApi(): Api {
@@ -67,7 +103,11 @@ export function createLocalApi(): Api {
   const emit = () => listeners.forEach((l) => l())
 
   function write(state: AppState) {
-    localStorage.setItem(KEY, JSON.stringify(state))
+    // Evento e lista de eventos ficam em chaves próprias
+    const data: AppState = { ...state }
+    delete data.event
+    delete data.events
+    localStorage.setItem(stateKey(currentEventId()), JSON.stringify(data))
     localStorage.removeItem(LEGACY_GRID_KEY) // já migrada para dentro do estado
     emit()
   }
@@ -86,7 +126,7 @@ export function createLocalApi(): Api {
       listeners.add(onChange)
       // Outras abas do mesmo navegador
       const onStorage = (e: StorageEvent) => {
-        if (e.key === KEY) onChange()
+        if (e.key?.startsWith(KEY) || e.key === EVENTS_KEY || e.key === CURRENT_KEY) onChange()
       }
       window.addEventListener('storage', onStorage)
       return () => {
@@ -132,6 +172,70 @@ export function createLocalApi(): Api {
 
     async getMarshalAccessInfo() {
       return null
+    },
+
+    async selectEvent(id) {
+      localStorage.setItem(CURRENT_KEY, id)
+      emit()
+    },
+
+    async findEventByCode(code) {
+      const clean = code.toUpperCase().replace(/[^0-9A-Z]/g, '')
+      return localEvents().find((e) => e.publicCode === clean) ?? null
+    },
+
+    async createEvent(input) {
+      if (!input.name.trim()) throw new Error('Informe o nome do evento')
+      const list = localEvents()
+      const event: EventInfo = {
+        id: crypto.randomUUID(),
+        name: input.name.trim(),
+        startsOn: input.startsOn,
+        location: input.location?.trim() || undefined,
+        status: 'aberto',
+        publicCode: randomCode(),
+      }
+      // Duplicar copia especiais, categorias e inscritos, sem tempos nem grade
+      const source = input.copyFrom ? localStorage.getItem(stateKey(input.copyFrom)) : null
+      const base = source ? (JSON.parse(source) as Partial<AppState>) : null
+      const data: AppState = {
+        riders: base?.riders ?? [],
+        runs: [],
+        categories: base?.categories ?? [...DEFAULT_CATEGORIES],
+        stages: base?.stages ?? [{ id: 'stage-1', name: 'E1', order: 1 }],
+        grid: [],
+      }
+      localStorage.setItem(stateKey(event.id), JSON.stringify(data))
+      saveEvents([event, ...list])
+      emit()
+      return event.id
+    },
+
+    async updateEvent(id, patch) {
+      const list = localEvents().map((e) =>
+        e.id === id
+          ? {
+              ...e,
+              ...patch,
+              name: patch.name?.trim() || e.name,
+              location: patch.location !== undefined ? patch.location.trim() || undefined : e.location,
+            }
+          : e,
+      )
+      saveEvents(list)
+      emit()
+    },
+
+    async getEventStats(id) {
+      const raw = localStorage.getItem(stateKey(id))
+      const data = raw ? (JSON.parse(raw) as Partial<AppState>) : {}
+      return { riders: data.riders?.length ?? 0, runs: data.runs?.length ?? 0 }
+    },
+
+    async deleteEvent(id) {
+      localStorage.removeItem(stateKey(id))
+      saveEvents(localEvents().filter((e) => e.id !== id))
+      emit()
     },
 
     async addCategory(name: string) {
