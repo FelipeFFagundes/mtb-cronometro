@@ -222,6 +222,24 @@ language sql stable security definer set search_path = public as $$
   end
 $$;
 
+-- Código curto aleatório com 32 símbolos sem os ambíguos (0/O, 1/I): cada byte vira um símbolo sem viés.
+-- Os bytes 0 a 5 de um UUID v4 são totalmente aleatórios (os demais têm bits fixos de versão).
+create or replace function random_code(p_len int default 6) returns text
+language plpgsql volatile as $$
+declare
+  v_alphabet constant text := '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  v_bytes bytea;
+  v_code  text := '';
+begin
+  while length(v_code) < p_len loop
+    v_bytes := decode(replace(gen_random_uuid()::text, '-', ''), 'hex');
+    for i in 0..least(5, p_len - length(v_code) - 1) loop
+      v_code := v_code || substr(v_alphabet, (get_byte(v_bytes, i) % 32) + 1, 1);
+    end loop;
+  end loop;
+  return v_code;
+end $$;
+
 -- Normaliza o código digitado: só letras e números, em maiúsculas ("7kq-4m2" → "7KQ4M2")
 create or replace function normalize_code(p_code text) returns text
 language sql immutable as $$ select upper(regexp_replace(coalesce(p_code, ''), '[^0-9A-Za-z]', '', 'g')) $$;
@@ -235,10 +253,7 @@ language sql immutable as $$ select encode(sha256(convert_to(p_salt || normalize
 create or replace function set_marshal_code(p_event uuid, p_revoke boolean default false) returns text
 language plpgsql security definer set search_path = public as $$
 declare
-  -- 32 símbolos sem os ambíguos (0/O, 1/I): cada byte aleatório vira um símbolo sem viés
-  v_alphabet constant text := '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-  v_bytes bytea := decode(replace(gen_random_uuid()::text, '-', ''), 'hex');
-  v_code  text := '';
+  v_code  text := random_code(6);
   v_salt  text := replace(gen_random_uuid()::text, '-', '');
 begin
   if not is_organizer() then
@@ -247,11 +262,6 @@ begin
   if not exists (select 1 from events where id = p_event) then
     raise exception 'Evento não encontrado' using errcode = 'MTB07';
   end if;
-  -- Bytes 0 a 5 do UUID v4 são totalmente aleatórios
-  for i in 0..5 loop
-    v_code := v_code || substr(v_alphabet, (get_byte(v_bytes, i) % 32) + 1, 1);
-  end loop;
-
   insert into event_secrets (event_id, marshal_salt, marshal_hash, updated_at)
   values (p_event, v_salt, hash_code(v_salt, v_code), now())
   on conflict (event_id) do update
@@ -307,6 +317,76 @@ begin
   insert into event_marshals (event_id, user_id) values (v_event, v_uid) on conflict do nothing;
   delete from join_attempts where user_id = v_uid;
   return v_event;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Eventos: código público e criação
+-- ---------------------------------------------------------------------------
+
+-- Código público do evento (5 caracteres, ex.: "K7MQ2"): vai no link e no QR code.
+-- Não é segredo; só identifica o evento para quem acompanha.
+create or replace function set_public_code() returns trigger
+language plpgsql as $$
+declare
+  v_code text;
+begin
+  if new.public_code is null or new.public_code = '' then
+    loop
+      v_code := random_code(5);
+      exit when not exists (select 1 from events where public_code = v_code);
+    end loop;
+    new.public_code := v_code;
+  else
+    new.public_code := normalize_code(new.public_code);
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists events_public_code on events;
+create trigger events_public_code before insert or update of public_code on events
+  for each row execute function set_public_code();
+
+-- Eventos que ainda não têm código (o "Prova atual" da migração)
+update events set public_code = null where public_code is null;
+
+-- Cria um evento. Com p_copy_from, copia especiais, categorias e inscritos (sem tempos nem grade);
+-- sem ele, começa com a especial E1 e as categorias padrão. Só organizador (MTB08).
+create or replace function create_event(
+  p_name      text,
+  p_starts_on date default current_date,
+  p_location  text default null,
+  p_copy_from uuid default null
+) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare
+  v_id uuid;
+begin
+  if not is_organizer() then
+    raise exception 'Só o organizador pode criar eventos' using errcode = 'MTB08';
+  end if;
+  if coalesce(trim(p_name), '') = '' then
+    raise exception 'Informe o nome do evento' using errcode = '22023';
+  end if;
+  if p_copy_from is not null and not exists (select 1 from events where id = p_copy_from) then
+    raise exception 'Evento de origem não encontrado' using errcode = 'MTB07';
+  end if;
+
+  insert into events (name, starts_on, location)
+  values (trim(p_name), coalesce(p_starts_on, current_date), nullif(trim(p_location), ''))
+  returning id into v_id;
+
+  if p_copy_from is null then
+    insert into stages (event_id, id, name, position) values (v_id, 'stage-1', 'E1', 1);
+    insert into categories (event_id, name) values (v_id, 'Elite Masculino'), (v_id, 'Elite Feminino');
+  else
+    insert into stages (event_id, id, name, position)
+      select v_id, id, name, position from stages where event_id = p_copy_from;
+    insert into categories (event_id, name)
+      select v_id, name from categories where event_id = p_copy_from;
+    insert into riders (event_id, num, name, category)
+      select v_id, num, name, category from riders where event_id = p_copy_from;
+  end if;
+  return v_id;
 end $$;
 
 -- Horário do servidor (o app usa para calcular o offset do relógio do celular)

@@ -11,6 +11,8 @@ import { api } from '../data'
 interface Props {
   onSuccess: () => void
   onCancel: () => void
+  /** Aba aberta primeiro (Supabase). */
+  defaultTab?: 'fiscal' | 'organizador'
 }
 
 const MAX_PIN = 8
@@ -152,8 +154,8 @@ function formatCode(raw: string): string {
 }
 
 /** Supabase: fiscal entra com o código do evento; organizador, com e-mail e senha. */
-function CodeLogin({ onSuccess, onCancel }: Props) {
-  const [tab, setTab] = useState<'fiscal' | 'organizador'>('fiscal')
+function CodeLogin({ onSuccess, onCancel, defaultTab = 'fiscal' }: Props) {
+  const [tab, setTab] = useState<'fiscal' | 'organizador'>(defaultTab)
   const [code, setCode] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')

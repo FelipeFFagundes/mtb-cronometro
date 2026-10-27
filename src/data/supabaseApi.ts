@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { Access, Api, AppState, EventInfo, MarshalAccessInfo, PendingOp, Role, Run, RunStatus, SyncStatus, Stage, StartGridItem } from '../types'
+import type { Access, Api, AppState, EventInfo, MarshalAccessInfo, NewEvent, PendingOp, Role, Run, RunStatus, SyncStatus, Stage, StartGridItem } from '../types'
 import { DEFAULT_CATEGORIES, DEFAULT_STAGES } from '../types'
 import { DEMO_RIDERS, DEMO_STAGES } from './demo'
 import { clock } from '../lib/time'
@@ -59,7 +59,10 @@ interface EventRow {
   starts_on: string
   location: string | null
   status: EventInfo['status']
+  public_code: string | null
 }
+
+const EVENT_COLUMNS = 'id,name,starts_on,location,status,public_code'
 
 const toEvent = (e: EventRow): EventInfo => ({
   id: e.id,
@@ -67,6 +70,7 @@ const toEvent = (e: EventRow): EventInfo => ({
   startsOn: e.starts_on,
   location: e.location ?? undefined,
   status: e.status,
+  publicCode: e.public_code ?? undefined,
 })
 
 type OpKind = 'start' | 'finish' | 'dnf' | 'undo'
@@ -175,6 +179,7 @@ function project(server: AppState, ops: Op[]): AppState {
   }
   return {
     event: server.event,
+    events: server.events,
     riders: server.riders,
     runs,
     categories: server.categories,
@@ -199,6 +204,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
   if (!server.grid) server.grid = [] // cache de versões antigas
   /** Evento em uso; null até a primeira busca escolher um. */
   let eventId: string | null = readJson<string | null>(EVENT_KEY, null) ?? server.event?.id ?? null
+  let eventList: EventInfo[] = server.events ?? []
   let queue: Op[] = readJson<Op[]>(QUEUE_KEY, [])
   let clockOffset = readJson<number>(OFFSET_KEY, 0)
   let online = typeof navigator === 'undefined' ? true : navigator.onLine
@@ -261,13 +267,14 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
    * recente (ou o mais recente de todos). Devolve null se a tabela de eventos não existir.
    */
   async function resolveEvent(): Promise<EventInfo | null> {
-    const r = await sb.from('events').select('id,name,starts_on,location,status').order('starts_on', { ascending: false }).order('created_at', { ascending: false })
+    const r = await sb.from('events').select(EVENT_COLUMNS).order('starts_on', { ascending: false }).order('created_at', { ascending: false })
     if (r.error) {
       if (classify({ error: r.error, status: r.status }) === 'network') setOnline(false)
       else warnSchema() // banco ainda sem eventos: rode o schema.sql novo
       return null
     }
     const list = ((r.data ?? []) as EventRow[]).map(toEvent)
+    eventList = list
     const chosen = list.find((e) => e.id === eventId) ?? list.find((e) => e.status === 'aberto') ?? list[0] ?? null
     if (chosen && chosen.id !== eventId) {
       eventId = chosen.id
@@ -345,6 +352,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
 
       server = {
         event,
+        events: eventList,
         riders: riderList,
         runs: ((runs.data ?? []) as RunRow[]).map((r) => toRun(r, firstStageId)),
         categories: cats.length > 0 ? cats : [...DEFAULT_CATEGORIES],
@@ -557,8 +565,8 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     },
 
     getAccess(): Access {
-      // O papel guardado só vale para o evento em que foi conferido
-      if (access.eventId && eventId && access.eventId !== eventId) return { role: 'public' }
+      // O papel de fiscal só vale para o evento em que foi conferido; o de organizador vale para todos
+      if (access.role === 'marshal' && access.eventId && eventId && access.eventId !== eventId) return { role: 'public' }
       return { role: access.role, email: access.email }
     },
 
@@ -624,6 +632,71 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
         codeUpdatedAt: row.code_updated_at ? new Date(row.code_updated_at).getTime() : null,
         marshals: row.marshals,
       }
+    },
+
+    async selectEvent(id) {
+      if (id === eventId) return
+      eventId = id
+      writeJson(EVENT_KEY, eventId)
+      // Não mostra os dados do evento anterior enquanto os novos chegam
+      server = { ...server, event: eventList.find((e) => e.id === id), riders: [], runs: [], categories: [], stages: [], grid: [] }
+      emit()
+      await pull()
+    },
+
+    async findEventByCode(code) {
+      const clean = code.toUpperCase().replace(/[^0-9A-Z]/g, '')
+      if (!clean) return null
+      const r = await sb.from('events').select(EVENT_COLUMNS).eq('public_code', clean).maybeSingle()
+      ensure(r)
+      return r.data ? toEvent(r.data as EventRow) : null
+    },
+
+    async createEvent(input: NewEvent) {
+      const r = await sb.rpc('create_event', {
+        p_name: input.name,
+        p_starts_on: input.startsOn,
+        p_location: input.location ?? null,
+        p_copy_from: input.copyFrom ?? null,
+      })
+      ensure(r)
+      await pull()
+      return r.data as string
+    },
+
+    async updateEvent(id, patch) {
+      const row: Record<string, unknown> = {}
+      if (patch.name !== undefined) row.name = patch.name.trim()
+      if (patch.startsOn !== undefined) row.starts_on = patch.startsOn
+      if (patch.location !== undefined) row.location = patch.location.trim() || null
+      if (patch.status !== undefined) row.status = patch.status
+      const r = await sb.from('events').update(row).eq('id', id).select('id')
+      ensure(r)
+      // Sem linha alterada = a regra de acesso recusou em silêncio
+      if (!r.data?.length) throw new Error('Sem permissão: só o organizador pode editar eventos.')
+      await pull()
+    },
+
+    async getEventStats(id) {
+      const count = async (table: 'riders' | 'runs') => {
+        const r = await sb.from(table).select('event_id', { count: 'exact', head: true }).eq('event_id', id)
+        ensure(r)
+        return r.count ?? 0
+      }
+      const [riders, runs] = await Promise.all([count('riders'), count('runs')])
+      return { riders, runs }
+    },
+
+    async deleteEvent(id) {
+      const r = await sb.from('events').delete().eq('id', id).select('id')
+      ensure(r)
+      if (!r.data?.length) throw new Error('Sem permissão: só o organizador pode excluir eventos.')
+      // O banco apaga em cascata tudo do evento; se era o evento em uso, o app escolhe outro
+      if (id === eventId) {
+        eventId = null
+        writeJson(EVENT_KEY, null)
+      }
+      await pull()
     },
 
     async addCategory(name: string) {

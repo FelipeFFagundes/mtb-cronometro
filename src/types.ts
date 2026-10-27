@@ -71,11 +71,23 @@ export interface EventInfo {
   startsOn: string
   location?: string
   status: 'rascunho' | 'aberto' | 'encerrado'
+  /** Código público (link e QR code de quem acompanha). */
+  publicCode?: string
+}
+
+/** Dados para criar um evento; `copyFrom` copia especiais, categorias e inscritos de outro evento. */
+export interface NewEvent {
+  name: string
+  startsOn: string
+  location?: string
+  copyFrom?: string
 }
 
 export interface AppState {
   /** Evento em uso (as listas abaixo são dele). */
   event?: EventInfo
+  /** Eventos visíveis para este aparelho (mais recentes primeiro). */
+  events?: EventInfo[]
   riders: Rider[]
   runs: Run[]
   categories: string[]
@@ -135,6 +147,16 @@ export interface Api {
   /** Gera ou troca o código do fiscal; `revoke` tira o acesso de quem entrou com o código anterior. */
   generateMarshalCode(revoke: boolean): Promise<string>
   getMarshalAccessInfo(): Promise<MarshalAccessInfo | null>
+  /** Troca o evento em uso (as telas passam a mostrar os dados dele). */
+  selectEvent(id: string): Promise<void>
+  /** Procura um evento visível pelo código público. */
+  findEventByCode(code: string): Promise<EventInfo | null>
+  /** Só organizador. Devolve o id do evento criado. */
+  createEvent(input: NewEvent): Promise<string>
+  updateEvent(id: string, patch: Partial<Pick<EventInfo, 'name' | 'startsOn' | 'location' | 'status'>>): Promise<void>
+  deleteEvent(id: string): Promise<void>
+  /** Quantos inscritos e tempos o evento tem (para confirmar a exclusão). */
+  getEventStats(id: string): Promise<{ riders: number; runs: number }>
   addCategory(name: string): Promise<void>
   updateCategory(oldName: string, newName: string): Promise<void>
   removeCategory(name: string): Promise<void>

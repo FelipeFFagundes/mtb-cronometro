@@ -171,6 +171,39 @@ Cada etapa deixa o app funcionando. Se faltar tempo antes de uma prova, as etapa
 6. Publique o app novo **logo em seguida**. Depois do passo 4, o app antigo deixa de conseguir gravar.
 7. No app: **Fiscal → Organizador**, entre com o e-mail e gere o código em **Prova → Acesso**.
 
+### Etapa 3: telas de eventos (feita)
+
+- **Banco:**
+  - código público de 5 caracteres para cada evento, gerado automaticamente (gatilho `events_public_code`); o "Prova atual" ganha o seu ao rodar o schema;
+  - `create_event` cria um evento do zero (especial E1 e categorias padrão) ou duplicando outro (especiais, categorias e inscritos, sem tempos nem grade);
+  - editar, encerrar e excluir continuam direto na tabela, liberados só para o organizador pelas regras da etapa 2.
+- **Rotas** (no `#` da URL, sem configuração no servidor):
+
+  | Rota | Tela |
+  |---|---|
+  | `#/` | Início |
+  | `#/e/K7MQ2` | Público do evento |
+  | `#/e/K7MQ2/fiscal` | Fiscal e organizador do evento |
+  | `#/organizar` | Área do organizador |
+
+  O antigo `#admin` leva às telas do fiscal do evento em uso. O botão Voltar navega entre as telas.
+- **Início:**
+  - eventos abertos (os de hoje primeiro, marcados com "Hoje") e encerrados;
+  - campo "Tenho um código";
+  - link para a área do organizador.
+
+  Na primeira abertura, se houver um evento só em andamento, o app vai direto para ele, como antes.
+- **Área do organizador:** cria, edita (nome, data, local e situação: rascunho, aberto ou encerrado), duplica e exclui eventos. Para excluir, é preciso digitar o nome do evento. A confirmação mostra quantos inscritos e tempos serão apagados e, se houver tempos, oferece encerrar em vez de excluir. O painel de edição mostra o nome do evento no título. **Divulgar** mostra o QR code e o link do evento, com copiar e compartilhar.
+- **Topo:** o nome do evento aparece abaixo de "Race Timer"; o logo volta ao início. No menu do organizador, o item **Eventos** abre a área do organizador.
+- **Modo local:** guarda vários eventos no aparelho, com as mesmas telas. Os dados que já existiam ficam no evento "Prova atual" (código `LOCAL`).
+- **Validação:**
+  - PGlite: 16 conferências novas (código público, criar e duplicar, permissões, normalização do código, banco novo); as 44 da etapa 2 continuam passando com o schema novo;
+  - navegador, modo local: abertura direta, PIN, criar evento duplicado, abrir no fiscal, voltar, código digitado, evento inexistente, link antigo e QR code.
+
+  **Não testado contra o Supabase real.**
+
+**Como aplicar:** rode `supabase/schema.sql` inteiro no SQL Editor. Ele só acrescenta coisas à etapa 2: o app publicado com a etapa 2 continua funcionando.
+
 ## Fora deste plano
 
 - Pontuação de campeonato somando várias etapas: fica mais fácil depois da etapa 4, mas é outro trabalho.
