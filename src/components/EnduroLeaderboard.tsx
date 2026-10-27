@@ -1,12 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { AppState } from '../types'
 import { buildEnduroRanking, type EnduroRankRow } from '../lib/ranking'
 import { fmt } from '../lib/time'
 import { radius, tabular, tokens } from '../theme'
 import { ChipSelect, EmptyState, ListCard, PageHeader, RiderPlate, StickyBar } from './ui'
-import { Box, ButtonBase, Chip, Collapse, Typography } from '@mui/material'
+import { ExportReport } from './ExportReport'
+import { Box, Button, ButtonBase, Chip, Collapse, Typography } from '@mui/material'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import EmojiEventsRoundedIcon from '@mui/icons-material/EmojiEventsRounded'
+import IosShareRoundedIcon from '@mui/icons-material/IosShareRounded'
 
 interface Props {
   state: AppState
@@ -71,9 +73,18 @@ function MainResult({ row, stageId, isFirst }: { row: EnduroRankRow; stageId: st
 }
 
 export function EnduroLeaderboard({ state, title = 'Classificação', subtitle }: Props) {
+  // Baixa o gerador de PDF em segundo plano: o "Exportar" funciona mesmo se o sinal cair no fim da prova
+  useEffect(() => {
+    const conn = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection
+    if (conn?.saveData) return
+    const idle = window.requestIdleCallback ?? ((cb: () => void) => window.setTimeout(cb, 1500))
+    idle(() => void import('../lib/reportPdf').catch(() => undefined))
+  }, [])
+
   const [cat, setCat] = useState('Todas')
   const [selectedStageId, setSelectedStageId] = useState<string>('all')
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [exportOpen, setExportOpen] = useState(false)
 
   const categories = state.categories || []
   const { rows, stages } = buildEnduroRanking(state, cat, selectedStageId)
@@ -87,7 +98,15 @@ export function EnduroLeaderboard({ state, title = 'Classificação', subtitle }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <PageHeader title={title} subtitle={subtitle} />
+      <PageHeader
+        title={title}
+        subtitle={subtitle}
+        right={
+          <Button variant="outlined" color="inherit" startIcon={<IosShareRoundedIcon />} onClick={() => setExportOpen(true)} sx={{ flexShrink: 0 }}>
+            Exportar
+          </Button>
+        }
+      />
 
       <StickyBar>
         <ChipSelect
@@ -190,6 +209,14 @@ export function EnduroLeaderboard({ state, title = 'Classificação', subtitle }
       <Typography variant="caption" color="text.secondary">
         Classificação geral pela soma das especiais concluídas. Quem completou mais especiais fica à frente.
       </Typography>
+
+      <ExportReport
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        state={state}
+        initialStageId={selectedStageId}
+        initialCategory={cat}
+      />
     </Box>
   )
 }

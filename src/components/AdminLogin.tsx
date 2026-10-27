@@ -5,6 +5,7 @@ import BackspaceOutlinedIcon from '@mui/icons-material/BackspaceOutlined'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import { radius, tabular, tokens } from '../theme'
+import { useBackClose } from '../hooks/useBackClose'
 
 interface Props {
   onSuccess: () => void
@@ -16,6 +17,7 @@ const MAX_PIN = 8
 export function AdminLogin({ onSuccess, onCancel }: Props) {
   const [pin, setPin] = useState('')
   const [error, setError] = useState(false)
+  useBackClose(true, onCancel)
 
   // PIN configurável via VITE_ADMIN_PIN (padrão: 1234). Só esconde a interface: ver docs/ARQUITETURA.md
   const expectedPin = (import.meta.env.VITE_ADMIN_PIN as string | undefined) || '1234'
