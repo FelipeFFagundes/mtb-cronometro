@@ -66,8 +66,6 @@ function withTransition(update: () => void) {
   setTimeout(run, 250)
 }
 
-const AUTH_KEY = 'mtb-admin-auth-v1'
-
 /** Ação que o aviso de sucesso oferece para desfazer. */
 export interface UndoAction {
   run: () => Promise<unknown>
@@ -127,12 +125,12 @@ function SyncPill({ sync }: { sync: SyncStatus }) {
 }
 
 export default function App() {
-  const { state, sync, pending, loading, error, refresh } = useStore()
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(
-    () => localStorage.getItem(AUTH_KEY) === 'true',
-  )
+  const { state, sync, pending, access, loading, error, refresh } = useStore()
+  // Fiscal ou organizador; o papel vem do servidor (e fica guardado para valer sem sinal)
+  const canOperate = access.role !== 'public'
+  const isOrganizer = access.role === 'organizer'
   const [mode, setMode] = useState<'public' | 'admin'>(() =>
-    location.hash === '#admin' && localStorage.getItem(AUTH_KEY) === 'true' ? 'admin' : 'public',
+    location.hash === '#admin' && api.getAccess().role !== 'public' ? 'admin' : 'public',
   )
   const [showLoginModal, setShowLoginModal] = useState(false)
   const [adminTab, setAdminTab] = useState<AdminTab>('largada')
@@ -186,7 +184,7 @@ export default function App() {
   )
 
   const handleRequestAdmin = () => {
-    if (isAdminAuthenticated) {
+    if (canOperate) {
       setMode('admin')
       afterHistorySettles(() => history.replaceState(null, '', '#admin'))
     } else {
@@ -195,18 +193,20 @@ export default function App() {
   }
 
   const handleLoginSuccess = () => {
-    setIsAdminAuthenticated(true)
-    localStorage.setItem(AUTH_KEY, 'true')
     setShowLoginModal(false)
     setMode('admin')
     afterHistorySettles(() => history.replaceState(null, '', '#admin'))
-    show('Modo fiscal liberado')
+    show(api.getAccess().role === 'organizer' ? 'Entrou como organizador' : 'Modo fiscal liberado')
+    void refresh()
   }
 
   const handleLogout = () => {
     setMenuAnchor(null)
-    setIsAdminAuthenticated(false)
-    localStorage.removeItem(AUTH_KEY)
+    if (pending.length > 0) {
+      show(`Há ${pending.length} ação(ões) aguardando envio. Espere sincronizar antes de sair.`, true)
+      return
+    }
+    void api.signOut()
     setMode('public')
     afterHistorySettles(() => history.replaceState(null, '', '#'))
     show('Você saiu do modo fiscal')
@@ -225,7 +225,9 @@ export default function App() {
     if (kind === 'reset') void act(() => api.reset(), 'Todos os pilotos e tempos foram apagados')
   }
 
-  const isAdmin = mode === 'admin'
+  const isAdmin = mode === 'admin' && canOperate
+  // Fiscal não cadastra: a aba Prova é só do organizador
+  const activeTab: AdminTab = adminTab === 'pilotos' && !isOrganizer ? 'largada' : adminTab
 
   return (
     <Box sx={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
@@ -281,36 +283,40 @@ export default function App() {
                   </ListItemIcon>
                   Som da largada: {soundOn ? 'ligado' : 'desligado'}
                 </MenuItem>
-                <MenuItem
-                  onClick={() => {
-                    setMenuAnchor(null)
-                    setConfirmData('demo')
-                  }}
-                  sx={{ minHeight: 48 }}
-                >
-                  <ListItemIcon>
-                    <ScienceRoundedIcon fontSize="small" />
-                  </ListItemIcon>
-                  Carregar dados de exemplo
-                </MenuItem>
-                <MenuItem
-                  onClick={() => {
-                    setMenuAnchor(null)
-                    setConfirmData('reset')
-                  }}
-                  sx={{ minHeight: 48, color: 'error.main' }}
-                >
-                  <ListItemIcon sx={{ color: 'inherit' }}>
-                    <DeleteForeverRoundedIcon fontSize="small" />
-                  </ListItemIcon>
-                  Apagar pilotos e tempos
-                </MenuItem>
+                {isOrganizer && (
+                  <MenuItem
+                    onClick={() => {
+                      setMenuAnchor(null)
+                      setConfirmData('demo')
+                    }}
+                    sx={{ minHeight: 48 }}
+                  >
+                    <ListItemIcon>
+                      <ScienceRoundedIcon fontSize="small" />
+                    </ListItemIcon>
+                    Carregar dados de exemplo
+                  </MenuItem>
+                )}
+                {isOrganizer && (
+                  <MenuItem
+                    onClick={() => {
+                      setMenuAnchor(null)
+                      setConfirmData('reset')
+                    }}
+                    sx={{ minHeight: 48, color: 'error.main' }}
+                  >
+                    <ListItemIcon sx={{ color: 'inherit' }}>
+                      <DeleteForeverRoundedIcon fontSize="small" />
+                    </ListItemIcon>
+                    Apagar pilotos e tempos
+                  </MenuItem>
+                )}
                 <Divider />
                 <MenuItem onClick={handleLogout} sx={{ minHeight: 48 }}>
                   <ListItemIcon>
                     <LogoutRoundedIcon fontSize="small" />
                   </ListItemIcon>
-                  Sair do modo fiscal
+                  {isOrganizer && access.email ? `Sair (${access.email})` : 'Sair do modo fiscal'}
                 </MenuItem>
               </Menu>
             </>
@@ -355,10 +361,10 @@ export default function App() {
           <PublicView state={state} tab={publicTab} />
         ) : (
           <>
-            {adminTab === 'largada' && <Largada state={state} act={act} online={sync.online} />}
-            {adminTab === 'chegada' && <Chegada state={state} act={act} online={sync.online} />}
-            {adminTab === 'ranking' && <Ranking state={state} />}
-            {adminTab === 'pilotos' && <Pilotos state={state} act={act} />}
+            {activeTab === 'largada' && <Largada state={state} act={act} online={sync.online} />}
+            {activeTab === 'chegada' && <Chegada state={state} act={act} online={sync.online} />}
+            {activeTab === 'ranking' && <Ranking state={state} />}
+            {activeTab === 'pilotos' && <Pilotos state={state} act={act} />}
           </>
         )}
       </Container>
@@ -381,11 +387,11 @@ export default function App() {
         }}
       >
         {isAdmin ? (
-          <BottomNavigation showLabels value={adminTab} onChange={(_, v: AdminTab) => withTransition(() => setAdminTab(v))}>
+          <BottomNavigation showLabels value={activeTab} onChange={(_, v: AdminTab) => withTransition(() => setAdminTab(v))}>
             <BottomNavigationAction label="Largada" value="largada" icon={<TrafficRoundedIcon />} />
             <BottomNavigationAction label="Chegada" value="chegada" icon={<SportsScoreRoundedIcon />} />
             <BottomNavigationAction label="Ranking" value="ranking" icon={<EmojiEventsRoundedIcon />} />
-            <BottomNavigationAction label="Prova" value="pilotos" icon={<PeopleAltRoundedIcon />} />
+            {isOrganizer && <BottomNavigationAction label="Prova" value="pilotos" icon={<PeopleAltRoundedIcon />} />}
           </BottomNavigation>
         ) : (
           <BottomNavigation showLabels value={publicTab} onChange={(_, v: PublicTab) => withTransition(() => setPublicTab(v))}>

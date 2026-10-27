@@ -136,6 +136,41 @@ Cada etapa deixa o app funcionando. Se faltar tempo antes de uma prova, as etapa
 
 **Como aplicar:** rode `supabase/schema.sql` inteiro no SQL Editor **antes** de publicar o app novo, como nas outras atualizações.
 
+### Etapa 2: acesso por código e login (feita)
+
+- **Banco:**
+  - novas tabelas `organizers`, `event_marshals` (aparelhos liberados como fiscal), `event_secrets` (hash do código, sem leitura pela API) e `join_attempts` (limite de tentativas);
+  - `set_marshal_code` gera o código do fiscal (6 caracteres sem 0/O/1/I, mostrado como `ABC-123`); `join_event` libera o aparelho; `my_access` diz o papel; `event_access_info` mostra a situação ao organizador;
+  - as funções de largada e chegada conferem quem chama (`MTB08` sem permissão) e as de cadastro, como grade e excluir especial, são só do organizador;
+  - 5 códigos errados em 10 minutos bloqueiam o aparelho (`MTB09`).
+- **Regras de acesso fechadas:**
+  - leitura liberada para todos em eventos que não são rascunho;
+  - escrita direta nas tabelas só pelo organizador;
+  - o fiscal grava só pelas funções;
+  - as regras abertas do protótipo foram removidas, junto com as funções sem evento e o padrão de `event_id` da etapa 1.
+- **App:**
+  - "Fiscal" abre a entrada com duas abas: **código do fiscal** (login anônimo e `join_event`) e **organizador** (e-mail e senha);
+  - o fiscal vê Largada, Chegada e Ranking;
+  - o organizador vê também Prova (com a nova aba **Acesso**, que gera e troca o código) e os itens de dados de exemplo e de apagar;
+  - o papel fica guardado no aparelho e vale sem sinal;
+  - se o servidor recusar uma ação por falta de permissão, ela continua na fila e o app pede para entrar de novo, sem descartar nada;
+  - no modo local, o PIN continua funcionando como antes.
+- **Validação:** no PGlite, cada papel (público, fiscal com e sem código, organizador) foi testado contra cada operação, incluindo evento encerrado, rascunho, troca de código com revogação, limite de tentativas e o schema rodado duas vezes a partir do banco da etapa 1. **Não testado contra o Supabase real.**
+
+**Como aplicar (nesta ordem, fora do horário de prova):**
+
+1. No Supabase, ative o login anônimo: **Authentication → Sign In / Providers → Allow anonymous sign-ins**.
+2. Desative o cadastro aberto, para ninguém criar conta sozinho: **Authentication → Sign In / Providers → desmarque "Allow new users to sign up"**. Os organizadores são criados por você no painel.
+3. Crie o organizador: **Authentication → Users → Add user** (e-mail e senha, marcando "Auto Confirm User").
+4. Rode `supabase/schema.sql` inteiro no SQL Editor.
+5. Libere o organizador (troque o e-mail):
+
+   ```sql
+   insert into organizers (user_id) select id from auth.users where email = 'seu@email.com';
+   ```
+6. Publique o app novo **logo em seguida**. Depois do passo 4, o app antigo deixa de conseguir gravar.
+7. No app: **Fiscal → Organizador**, entre com o e-mail e gere o código em **Prova → Acesso**.
+
 ## Fora deste plano
 
 - Pontuação de campeonato somando várias etapas: fica mais fácil depois da etapa 4, mas é outro trabalho.

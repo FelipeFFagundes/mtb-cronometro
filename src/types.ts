@@ -39,6 +39,23 @@ export interface Run {
   status: RunStatus
 }
 
+/** Papel do aparelho no evento: público só lê; fiscal registra largada e chegada; organizador faz tudo. */
+export type Role = 'public' | 'marshal' | 'organizer'
+
+export interface Access {
+  role: Role
+  /** E-mail do organizador logado. */
+  email?: string
+}
+
+/** Situação do código do fiscal do evento (tela do organizador). */
+export interface MarshalAccessInfo {
+  hasCode: boolean
+  codeUpdatedAt: number | null
+  /** Aparelhos liberados como fiscal. */
+  marshals: number
+}
+
 /** Resumo de uma importação em massa. */
 export interface ImportResult {
   added: number
@@ -108,6 +125,16 @@ export interface Api {
   discardPending(id: string): void
   /** Avisos assíncronos (ex.: ação rejeitada pelo servidor ao sincronizar). */
   onNotice(cb: (msg: string, isError: boolean) => void): () => void
+  /** Papel deste aparelho no evento em uso (guardado no aparelho: vale sem sinal). */
+  getAccess(): Access
+  /** Fiscal entra com o código do evento (no modo local, com o PIN). */
+  joinWithCode(code: string): Promise<void>
+  /** Organizador entra com e-mail e senha (só com o Supabase). */
+  signIn(email: string, password: string): Promise<void>
+  signOut(): Promise<void>
+  /** Gera ou troca o código do fiscal; `revoke` tira o acesso de quem entrou com o código anterior. */
+  generateMarshalCode(revoke: boolean): Promise<string>
+  getMarshalAccessInfo(): Promise<MarshalAccessInfo | null>
   addCategory(name: string): Promise<void>
   updateCategory(oldName: string, newName: string): Promise<void>
   removeCategory(name: string): Promise<void>
