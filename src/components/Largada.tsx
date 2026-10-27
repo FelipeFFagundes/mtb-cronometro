@@ -6,6 +6,7 @@ export type { StartGridItem } from '../types'
 import { DEFAULT_STAGES } from '../types'
 import { clock } from '../lib/time'
 import { gridForStage } from '../lib/grid'
+import { athleteKey } from '../lib/athletes'
 import { playCountdownTick, playStartGo, unlockAudio } from '../lib/sound'
 import { useNow } from '../hooks/useNow'
 import { BOTTOMNAV_H, radius, tabular, tokens } from '../theme'
@@ -167,9 +168,10 @@ export function Largada({ state, act, online }: Props) {
 
   const selected = availableRiders.find((r) => r.num === selectedNum) ?? availableRiders[0]
 
-  const q = search.trim().toLowerCase()
+  // Busca sem diferenciar acentos ("pescoco" acha "Sem pescoço")
+  const q = athleteKey(search)
   const visibleQueue = q
-    ? availableRiders.filter((r) => r.num.startsWith(q) || r.name.toLowerCase().includes(q))
+    ? availableRiders.filter((r) => r.num.startsWith(q) || athleteKey(r.name).includes(q))
     : availableRiders
 
   const recent = state.runs
@@ -466,6 +468,11 @@ export function Largada({ state, act, online }: Props) {
               <Typography variant="h5" sx={{ fontWeight: 800 }}>
                 {countdownTarget.rider.name}
               </Typography>
+              {countdownTarget.rider.team && (
+                <Typography color="text.secondary" sx={{ mt: -1 }}>
+                  {countdownTarget.rider.team}
+                </Typography>
+              )}
             </Box>
 
             <Box

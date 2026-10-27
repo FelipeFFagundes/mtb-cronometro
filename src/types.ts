@@ -18,6 +18,28 @@ export interface Rider {
   num: string
   name: string
   cat: string
+  /** Equipe do atleta (vale para todos os eventos dele). */
+  team?: string
+  /** Atleta da base a que esta inscrição pertence. */
+  athleteId?: string
+}
+
+/** Atleta da base, com quantos eventos já correu. */
+export interface AthleteSummary {
+  id: string
+  name: string
+  team?: string
+  city?: string
+  events: number
+}
+
+/** Participação de um atleta em um evento. */
+export interface AthleteEntry {
+  eventId: string
+  eventName: string
+  startsOn: string
+  num: string
+  category: string
 }
 
 export interface StartGridItem {
@@ -39,6 +61,23 @@ export interface Run {
   status: RunStatus
 }
 
+/** Papel do aparelho no evento: público só lê; fiscal registra largada e chegada; organizador faz tudo. */
+export type Role = 'public' | 'marshal' | 'organizer'
+
+export interface Access {
+  role: Role
+  /** E-mail do organizador logado. */
+  email?: string
+}
+
+/** Situação do código do fiscal do evento (tela do organizador). */
+export interface MarshalAccessInfo {
+  hasCode: boolean
+  codeUpdatedAt: number | null
+  /** Aparelhos liberados como fiscal. */
+  marshals: number
+}
+
 /** Resumo de uma importação em massa. */
 export interface ImportResult {
   added: number
@@ -46,7 +85,31 @@ export interface ImportResult {
   categoriesAdded: number
 }
 
+/** Dados de um evento (prova). */
+export interface EventInfo {
+  id: string
+  name: string
+  /** Data da prova (AAAA-MM-DD). */
+  startsOn: string
+  location?: string
+  status: 'rascunho' | 'aberto' | 'encerrado'
+  /** Código público (link e QR code de quem acompanha). */
+  publicCode?: string
+}
+
+/** Dados para criar um evento; `copyFrom` copia especiais, categorias e inscritos de outro evento. */
+export interface NewEvent {
+  name: string
+  startsOn: string
+  location?: string
+  copyFrom?: string
+}
+
 export interface AppState {
+  /** Evento em uso (as listas abaixo são dele). */
+  event?: EventInfo
+  /** Eventos visíveis para este aparelho (mais recentes primeiro). */
+  events?: EventInfo[]
   riders: Rider[]
   runs: Run[]
   categories: string[]
@@ -96,6 +159,30 @@ export interface Api {
   discardPending(id: string): void
   /** Avisos assíncronos (ex.: ação rejeitada pelo servidor ao sincronizar). */
   onNotice(cb: (msg: string, isError: boolean) => void): () => void
+  /** Papel deste aparelho no evento em uso (guardado no aparelho: vale sem sinal). */
+  getAccess(): Access
+  /** Fiscal entra com o código do evento (no modo local, com o PIN). */
+  joinWithCode(code: string): Promise<void>
+  /** Organizador entra com e-mail e senha (só com o Supabase). */
+  signIn(email: string, password: string): Promise<void>
+  signOut(): Promise<void>
+  /** Gera ou troca o código do fiscal; `revoke` tira o acesso de quem entrou com o código anterior. */
+  generateMarshalCode(revoke: boolean): Promise<string>
+  getMarshalAccessInfo(): Promise<MarshalAccessInfo | null>
+  /** Troca o evento em uso (as telas passam a mostrar os dados dele). */
+  selectEvent(id: string): Promise<void>
+  /** Procura um evento visível pelo código público. */
+  findEventByCode(code: string): Promise<EventInfo | null>
+  /** Só organizador. Devolve o id do evento criado. */
+  createEvent(input: NewEvent): Promise<string>
+  updateEvent(id: string, patch: Partial<Pick<EventInfo, 'name' | 'startsOn' | 'location' | 'status'>>): Promise<void>
+  deleteEvent(id: string): Promise<void>
+  /** Quantos inscritos e tempos o evento tem (para confirmar a exclusão). */
+  getEventStats(id: string): Promise<{ riders: number; runs: number }>
+  /** Atletas da base cujo nome contém o texto (sem diferenciar acentos). */
+  searchAthletes(query: string): Promise<AthleteSummary[]>
+  /** Eventos de que o atleta participou (mais recentes primeiro). */
+  getAthleteHistory(athleteId: string): Promise<AthleteEntry[]>
   addCategory(name: string): Promise<void>
   updateCategory(oldName: string, newName: string): Promise<void>
   removeCategory(name: string): Promise<void>

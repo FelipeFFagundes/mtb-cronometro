@@ -7,6 +7,9 @@ import { BOTTOMNAV_H, tokens } from '../theme'
 import { BottomSheet, ChipSelect, ConfirmDialog, EmptyState, ListCard, PageHeader, RiderPlate, Section } from './ui'
 import { StartGridList } from './StartGridList'
 import { ImportCsv } from './ImportCsv'
+import { MarshalAccess } from './MarshalAccess'
+import { AthleteHistory, AthleteNameField } from './AthleteFields'
+import { athleteKey } from '../lib/athletes'
 import {
   Box,
   Button,
@@ -41,7 +44,7 @@ interface Props {
   act: Act
 }
 
-type SubTab = 'atletas' | 'categorias' | 'especiais' | 'grade'
+type SubTab = 'atletas' | 'categorias' | 'especiais' | 'grade' | 'acesso'
 
 const noCategory = (cat: string) => !cat || cat === 'Sem Categoria'
 
@@ -90,6 +93,7 @@ export function Pilotos({ state, act }: Props) {
 
   const [num, setNum] = useState('')
   const [name, setName] = useState('')
+  const [team, setTeam] = useState('')
   const [newCat, setNewCat] = useState('')
   const [search, setSearch] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -301,7 +305,14 @@ export function Pilotos({ state, act }: Props) {
     }
   }
 
-  const [editingRider, setEditingRider] = useState<{ originalNum: string; num: string; name: string; cat: string } | null>(null)
+  const [editingRider, setEditingRider] = useState<{
+    originalNum: string
+    num: string
+    name: string
+    cat: string
+    team: string
+    athleteId?: string
+  } | null>(null)
   const [editingCategory, setEditingCategory] = useState<{ oldName: string; name: string } | null>(null)
   const [deletingRider, setDeletingRider] = useState<Rider | null>(null)
   const [deletingCategory, setDeletingCategory] = useState<{ name: string; ridersCount: number } | null>(null)
@@ -316,11 +327,15 @@ export function Pilotos({ state, act }: Props) {
     if (!num.trim()) return act(async () => { throw new Error('Informe o número do atleta') })
     if (!name.trim()) return act(async () => { throw new Error('Informe o nome do atleta') })
 
-    const ok = await act(() => api.addRider({ num: num.trim(), name: name.trim(), cat: activeCat }), `Piloto #${num.trim()} cadastrado`)
+    const ok = await act(
+      () => api.addRider({ num: num.trim(), name: name.trim(), cat: activeCat, team: team.trim() }),
+      `Piloto #${num.trim()} cadastrado`,
+    )
     if (ok) {
       // O painel continua aberto para cadastrar o próximo em sequência
       setNum('')
       setName('')
+      setTeam('')
       numInputRef.current?.focus()
     }
   }
@@ -334,7 +349,13 @@ export function Pilotos({ state, act }: Props) {
     if (!trimmedName) return act(async () => { throw new Error('O nome do piloto é obrigatório') })
 
     const ok = await act(
-      () => api.updateRider(editingRider.originalNum, { num: trimmedNum, name: trimmedName, cat: editingRider.cat }),
+      () =>
+        api.updateRider(editingRider.originalNum, {
+          num: trimmedNum,
+          name: trimmedName,
+          cat: editingRider.cat,
+          team: editingRider.team.trim(),
+        }),
       `Piloto #${trimmedNum} atualizado`,
     )
     if (ok) setEditingRider(null)
@@ -420,9 +441,16 @@ export function Pilotos({ state, act }: Props) {
   }
 
   const riders = state.riders.slice().sort((a, b) => Number(a.num) - Number(b.num))
-  const q = search.trim().toLowerCase()
+  // Busca sem diferenciar acentos ("pescoco" acha "Sem pescoço"), também por equipe
+  const q = athleteKey(search)
   const visibleRiders = q
-    ? riders.filter((r) => r.num.startsWith(q) || r.name.toLowerCase().includes(q) || r.cat.toLowerCase().includes(q))
+    ? riders.filter(
+        (r) =>
+          r.num.startsWith(q) ||
+          athleteKey(r.name).includes(q) ||
+          athleteKey(r.cat).includes(q) ||
+          athleteKey(r.team ?? '').includes(q),
+      )
     : riders
   const withoutCategory = riders.filter((r) => noCategory(r.cat)).length
 
@@ -448,7 +476,7 @@ export function Pilotos({ state, act }: Props) {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <PageHeader title="Prova" subtitle={`${riders.length} atletas · ${categories.length} categorias · ${stages.length} especiais`} />
+      <PageHeader title="Prova" subtitle={`${state.event ? `${state.event.name} · ` : ''}${riders.length} atletas · ${categories.length} categorias · ${stages.length} especiais`} />
 
       <Tabs
         value={tab}
@@ -466,6 +494,7 @@ export function Pilotos({ state, act }: Props) {
         <Tab value="categorias" label="Categorias" />
         <Tab value="especiais" label="Especiais" />
         <Tab value="grade" label="Grade" />
+        {api.mode === 'supabase' && <Tab value="acesso" label="Acesso" />}
       </Tabs>
 
       {/* ============ ATLETAS ============ */}
@@ -507,7 +536,9 @@ export function Pilotos({ state, act }: Props) {
               {visibleRiders.map((r) => (
                 <ButtonBase
                   key={r.num}
-                  onClick={() => setEditingRider({ originalNum: r.num, num: r.num, name: r.name, cat: r.cat })}
+                  onClick={() =>
+                    setEditingRider({ originalNum: r.num, num: r.num, name: r.name, cat: r.cat, team: r.team ?? '', athleteId: r.athleteId })
+                  }
                   sx={{ width: '100%', display: 'flex', alignItems: 'center', gap: 1.5, pl: 2, pr: 1, py: 1, minHeight: 60, textAlign: 'left' }}
                 >
                   <RiderPlate num={r.num} size="md" tone="muted" />
@@ -517,6 +548,7 @@ export function Pilotos({ state, act }: Props) {
                     </Typography>
                     <Typography variant="caption" noWrap color={noCategory(r.cat) ? 'error.main' : 'text.secondary'} sx={{ display: 'block', fontWeight: noCategory(r.cat) ? 800 : 400 }}>
                       {noCategory(r.cat) ? 'Sem categoria' : r.cat}
+                      {r.team && ` · ${r.team}`}
                     </Typography>
                   </Box>
                   <ChevronRightRoundedIcon sx={{ color: 'text.secondary' }} />
@@ -756,6 +788,8 @@ export function Pilotos({ state, act }: Props) {
         </>
       )}
 
+      {tab === 'acesso' && <MarshalAccess state={state} act={act} />}
+
       {/* ============ PAINÉIS E CONFIRMAÇÕES ============ */}
       <ImportCsv open={importOpen} onClose={() => setImportOpen(false)} state={state} act={act} />
 
@@ -772,16 +806,16 @@ export function Pilotos({ state, act }: Props) {
               sx={{ width: 96, flexShrink: 0 }}
               required
             />
-            <TextField
-              label="Nome completo"
+            <AthleteNameField
               value={name}
-              onChange={(e) => setName(e.target.value.slice(0, 35))}
-              helperText={`${name.length}/35`}
-              slotProps={{ htmlInput: { autoCapitalize: 'words', enterKeyHint: 'done' }, formHelperText: { sx: { textAlign: 'right' } } }}
-              fullWidth
-              required
+              onChange={setName}
+              onPick={(a) => {
+                setName(a.name)
+                setTeam(a.team ?? '')
+              }}
             />
           </Box>
+          <TextField label="Equipe (opcional)" value={team} onChange={(e) => setTeam(e.target.value.slice(0, 40))} fullWidth />
           {categorySelect(activeCat, setCat)}
           <Button type="submit" variant="contained" size="large">
             Cadastrar e continuar
@@ -801,17 +835,21 @@ export function Pilotos({ state, act }: Props) {
                 sx={{ width: 96, flexShrink: 0 }}
                 required
               />
-              <TextField
-                label="Nome completo"
+              <AthleteNameField
                 value={editingRider.name}
-                onChange={(e) => setEditingRider({ ...editingRider, name: e.target.value.slice(0, 35) })}
-                helperText={`${editingRider.name.length}/35`}
-                slotProps={{ formHelperText: { sx: { textAlign: 'right' } } }}
-                fullWidth
-                required
+                onChange={(v) => setEditingRider({ ...editingRider, name: v })}
+                onPick={(a) => setEditingRider({ ...editingRider, name: a.name, team: a.team ?? editingRider.team })}
               />
             </Box>
+            <TextField
+              label="Equipe (opcional)"
+              value={editingRider.team}
+              onChange={(e) => setEditingRider({ ...editingRider, team: e.target.value.slice(0, 40) })}
+              helperText="Vale para este atleta em todos os eventos"
+              fullWidth
+            />
             {categorySelect(editingRider.cat, (v) => setEditingRider({ ...editingRider, cat: v }))}
+            <AthleteHistory athleteId={editingRider.athleteId} currentEventId={state.event?.id} />
             <Button type="submit" variant="contained" size="large">
               Salvar
             </Button>

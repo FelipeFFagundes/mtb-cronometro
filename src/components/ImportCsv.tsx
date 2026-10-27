@@ -68,8 +68,9 @@ export function ImportCsv({ open, onClose, state, act }: Props) {
     <BottomSheet open={open} onClose={close} title="Importar planilha">
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
         <Typography variant="body2" color="text.secondary">
-          Arquivo CSV com as colunas <strong>numero</strong>, <strong>nome</strong> e <strong>categoria</strong>. Pilotos com
-          número já cadastrado são atualizados; categorias que não existem são criadas.
+          Arquivo CSV com as colunas <strong>numero</strong>, <strong>nome</strong> e <strong>categoria</strong> e, se quiser,{' '}
+          <strong>equipe</strong>. Pilotos com número já cadastrado são atualizados; categorias que não existem são criadas.
+          Quem já correu outro evento é reconhecido pelo nome.
         </Typography>
 
         <Box sx={{ display: 'flex', gap: 1 }}>
@@ -125,6 +126,7 @@ export function ImportCsv({ open, onClose, state, act }: Props) {
                       </Typography>
                       <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
                         {r.cat}
+                        {r.team && ` · ${r.team}`}
                       </Typography>
                     </Box>
                     {known.has(r.num) && <Chip size="small" variant="outlined" label="atualiza" />}

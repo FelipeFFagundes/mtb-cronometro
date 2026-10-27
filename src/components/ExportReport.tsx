@@ -27,7 +27,7 @@ interface Props {
 
 /** Painel para gerar o relatório de resultados em PDF ou imagem. */
 export function ExportReport({ open, onClose, state, initialStageId, initialCategory }: Props) {
-  const [title, setTitle] = useState(savedTitle)
+  const [title, setTitle] = useState(() => savedTitle() || state.event?.name || '')
   const [stageId, setStageId] = useState(initialStageId)
   const [category, setCategory] = useState(initialCategory)
   const [busy, setBusy] = useState<'pdf' | 'png' | null>(null)

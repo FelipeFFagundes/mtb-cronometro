@@ -160,6 +160,7 @@ export function EnduroLeaderboard({ state, title = 'Classificação', subtitle }
                     </Typography>
                     <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
                       {row.rider.cat}
+                      {row.rider.team && ` · ${row.rider.team}`}
                       {isOverall && ` · ${row.completedCount}/${stages.length} esp.`}
                     </Typography>
                   </Box>
