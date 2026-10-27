@@ -124,7 +124,7 @@ Cada etapa deixa o app funcionando. Se faltar tempo antes de uma prova, as etapa
   - grava o evento em cada ação da fila offline.
 
   Ações que estavam na fila antes da atualização só são enviadas depois que o evento é conhecido. O nome do evento aparece na aba Prova e vira o título padrão do relatório.
-- **Antes da etapa 4:** a tabela `riders` faz o papel de **inscrição** (placa, nome e categoria no evento). A base única de pilotos entra na etapa 4.
+- **Inscrição:** a tabela `riders` faz o papel de inscrição (placa, nome e categoria no evento). A base única de pilotos entrou na etapa 4, como `athletes`.
 - **Validação no PGlite:**
   - migração a partir do banco atual com dados (rodada duas vezes, sem perda);
   - banco muito antigo com descidas repetidas;
@@ -203,6 +203,31 @@ Cada etapa deixa o app funcionando. Se faltar tempo antes de uma prova, as etapa
   **Não testado contra o Supabase real.**
 
 **Como aplicar:** rode `supabase/schema.sql` inteiro no SQL Editor. Ele só acrescenta coisas à etapa 2: o app publicado com a etapa 2 continua funcionando.
+
+### Etapa 4: base de pilotos (feita)
+
+- **Banco:**
+  - tabela `athletes` (nome, equipe, cidade): cada pessoa é cadastrada uma vez;
+  - a inscrição no evento continua em `riders` (placa, nome e categoria do evento) e ganha `athlete_id`;
+  - **o vínculo é automático pelo nome**, ignorando acentos, maiúsculas e espaços repetidos (gatilho `riders_link_athlete`): "joao  da silva" num evento novo reaproveita o "João da Silva" que já existe. Homônimos ficam no mesmo atleta;
+  - ao rodar o schema, as inscrições existentes são ligadas aos atletas, sem perder nada;
+  - duplicar evento mantém os mesmos atletas;
+  - `set_teams` grava a equipe (só organizador) e `search_athletes` busca na base sem diferenciar acentos;
+  - leitura pública; escrita só do organizador.
+- **App:**
+  - **Novo atleta:** ao digitar o nome, sugere quem já está na base (com equipe e número de eventos); escolher preenche nome e equipe;
+  - **campo Equipe** no cadastro e na edição; vale para o atleta em todos os eventos;
+  - **"Outros eventos"** no painel de edição mostra o histórico do atleta (data, evento, placa e categoria);
+  - a equipe aparece na lista de atletas, na contagem regressiva e na classificação;
+  - **planilha:** coluna opcional `equipe` (modelo atualizado); sem a coluna, a equipe já cadastrada não muda.
+- **Modo local:** o atleta é reconhecido pelo nome em todos os eventos do aparelho.
+- **Validação:**
+  - PGlite: 21 conferências novas (migração, vínculo por nome com acentos, troca de nome, duplicar, equipe, busca, permissões, banco novo); as 44 da etapa 2 e as 16 da etapa 3 continuam passando;
+  - navegador, modo local: importar o modelo com equipe, o mesmo atleta em duas etapas, sugestão ao digitar, escolher a sugestão e histórico no painel de edição.
+
+  - Supabase real (schema aplicado): sem login, inscrições ligadas aos atletas, busca sem acento e escrita bloqueada; com o organizador, equipe gravada, sugestão ao digitar, histórico em "Outros eventos" e busca "pescoco" achando "Sem pescoço". O teste no Supabase pegou dois erros, já corrigidos: o histórico precisava indicar qual ligação entre inscrição e evento usar, e as buscas das listas diferenciavam acentos.
+
+**Como aplicar:** rode `supabase/schema.sql` inteiro no SQL Editor. Ele só acrescenta coisas à etapa 3.
 
 ## Fora deste plano
 
