@@ -576,6 +576,24 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       await pull()
     },
 
+    async importRiders(riders, categories) {
+      const known = new Set(server.riders.map((r) => r.num))
+      const newCats = categories.filter((c) => !server.categories.includes(c))
+      if (newCats.length > 0) {
+        ensure(await sb.from('categories').upsert(newCats.map((name) => ({ name })), { onConflict: 'name', ignoreDuplicates: true }))
+      }
+      if (riders.length > 0) {
+        ensure(
+          await sb
+            .from('riders')
+            .upsert(riders.map((r) => ({ num: r.num, name: r.name, category: r.cat })), { onConflict: 'num' }),
+        )
+      }
+      await pull()
+      const updated = riders.filter((r) => known.has(r.num)).length
+      return { added: riders.length - updated, updated, categoriesAdded: newCats.length }
+    },
+
     async startRun(num, stageId) {
       const st = view()
       const rider = st.riders.find((r) => r.num === num)

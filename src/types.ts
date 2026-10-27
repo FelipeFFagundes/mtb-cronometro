@@ -39,6 +39,13 @@ export interface Run {
   status: RunStatus
 }
 
+/** Resumo de uma importação em massa. */
+export interface ImportResult {
+  added: number
+  updated: number
+  categoriesAdded: number
+}
+
 export interface AppState {
   riders: Rider[]
   runs: Run[]
@@ -102,6 +109,8 @@ export interface Api {
   addRider(rider: Rider): Promise<void>
   updateRider(oldNum: string, updated: Rider): Promise<void>
   removeRider(num: string): Promise<void>
+  /** Cadastra ou atualiza (pelo número) vários pilotos de uma vez e cria as categorias que faltarem. */
+  importRiders(riders: Rider[], categories: string[]): Promise<ImportResult>
   startRun(num: string, stageId?: string): Promise<Run | null>
   finishRun(num: string, atEpochMs?: number, stageId?: string): Promise<Run | null>
   dnfRun(id: string): Promise<void>

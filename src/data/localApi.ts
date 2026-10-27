@@ -202,6 +202,24 @@ export function createLocalApi(): Api {
       write(s)
     },
 
+    async importRiders(riders, categories) {
+      const s = read()
+      const newCats = categories.filter((c) => !s.categories.includes(c))
+      s.categories.push(...newCats)
+      let updated = 0
+      for (const rider of riders) {
+        const idx = s.riders.findIndex((r) => r.num === rider.num)
+        if (idx === -1) {
+          s.riders.push(rider)
+        } else {
+          s.riders[idx] = rider
+          updated++
+        }
+      }
+      write(s)
+      return { added: riders.length - updated, updated, categoriesAdded: newCats.length }
+    },
+
     async setStageGrid(stageId, items) {
       const s = read()
       if (!s.stages.some((st) => st.id === stageId)) throw new Error('Especial não encontrada')
