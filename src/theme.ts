@@ -88,7 +88,8 @@ export const theme = createTheme({
     error: { main: tokens.finish, light: '#ff7b7c', dark: '#d92d2f', contrastText: '#ffffff' },
     warning: { main: tokens.warn, contrastText: '#1f0d00' },
     info: { main: '#60a5fa' },
-    background: { default: tokens.bg, paper: tokens.surface },
+    // Cartões levemente translúcidos: deixam o desenho do fundo aparecer um pouco
+    background: { default: tokens.bg, paper: 'rgba(20, 20, 22, 0.86)' },
     text: { primary: tokens.text, secondary: tokens.muted },
     divider: tokens.line,
   },

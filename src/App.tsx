@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { api } from './data'
 import { useStore } from './hooks/useStore'
@@ -10,9 +10,10 @@ import { PublicView, type PublicTab } from './components/PublicView'
 import { SyncBanner } from './components/SyncBanner'
 import { AdminLogin } from './components/AdminLogin'
 import { ConfirmDialog, EmptyState, PageSkeleton } from './components/ui'
-import { useBackClose } from './hooks/useBackClose'
+import { afterHistorySettles, useBackClose } from './hooks/useBackClose'
 import { useRoute } from './hooks/useRoute'
 import { Home } from './components/Home'
+import { Landing } from './components/Landing'
 import { EventsAdmin } from './components/EventsAdmin'
 import { isSoundEnabled, playCountdownTick, setSoundEnabled, unlockAudio } from './lib/sound'
 import { BOTTOMNAV_H, TOPBAR_H, display, radius, tokens } from './theme'
@@ -166,16 +167,6 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, routeCode, eventCode])
 
-  // Primeira abertura no início com um evento só em andamento: vai direto para ele (como antes dos eventos)
-  const autoOpened = useRef(false)
-  useEffect(() => {
-    if (autoOpened.current || loading || route.name !== 'home' || !state.events) return
-    autoOpened.current = true
-    const active = state.events.filter((e) => e.status !== 'encerrado')
-    if (active.length === 1 && active[0].publicCode) {
-      navigate({ name: 'event', code: active[0].publicCode, fiscal: false }, { replace: true })
-    }
-  }, [loading, route.name, state.events, navigate])
   const [adminTab, setAdminTab] = useState<AdminTab>('largada')
   const [publicTab, setPublicTab] = useState<PublicTab>('live')
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
@@ -228,20 +219,36 @@ export default function App() {
 
   const openEvent = (code: string, fiscal: boolean) => navigate({ name: 'event', code, fiscal })
 
+  // Para onde ir depois de entrar: telas do fiscal no evento, ou área do organizador
+  const [loginTarget, setLoginTarget] = useState<'event' | 'organizer'>('event')
+  const openLogin = (target: 'event' | 'organizer') => {
+    setLoginTarget(target)
+    // No modo local o PIN é a única entrada (aba "fiscal"); com o Supabase, organizador entra por e-mail
+    setLoginTab(target === 'organizer' && api.mode === 'supabase' ? 'organizador' : 'fiscal')
+  }
+
   const handleRequestAdmin = () => {
     if (canOperate && eventCode) openEvent(eventCode, true)
-    else setLoginTab('fiscal')
+    else openLogin('event')
+  }
+
+  const goOrganizer = () => {
+    navigate({ name: 'organizer' })
+    // O login abre depois da troca de tela, para ficar por cima dela no histórico (o Voltar fecha o login)
+    if (!isOrganizer) afterHistorySettles(() => openLogin('organizer'))
   }
 
   const handleLoginSuccess = async () => {
-    const tab = loginTab
     setLoginTab(null)
     const role = api.getAccess().role
     show(role === 'organizer' ? 'Entrou como organizador' : 'Modo fiscal liberado')
-    // O código do fiscal leva ao evento dele; o organizador continua onde estava (ou vai para o evento em uso)
-    const current = await api.load()
-    if (tab === 'organizador' && route.name === 'organizer') return
-    if (current.event?.publicCode) openEvent(current.event.publicCode, true)
+    if (loginTarget === 'organizer' && role === 'organizer') {
+      navigate({ name: 'organizer' })
+    } else {
+      // O código do fiscal leva ao evento dele
+      const current = await api.load()
+      if (current.event?.publicCode) openEvent(current.event.publicCode, true)
+    }
     void refresh()
   }
 
@@ -276,6 +283,24 @@ export default function App() {
 
   return (
     <Box sx={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
+      {/* Fundo: desenho da SPET bem apagado. Com "screen" o preto da imagem some e só os traços aparecem */}
+      <Box
+        aria-hidden
+        sx={{
+          position: 'fixed',
+          inset: 0,
+          // Atrás de tudo, sem criar camada própria no conteúdo (o "screen" do logo da página inicial
+          // precisa enxergar o fundo para sumir com o preto)
+          zIndex: -1,
+          pointerEvents: 'none',
+          backgroundImage: 'url(/bg-spet.jpg)',
+          backgroundRepeat: 'no-repeat',
+          backgroundPosition: 'center 58%',
+          backgroundSize: 'min(120vw, 760px) auto',
+          mixBlendMode: 'screen',
+          opacity: 0.13,
+        }}
+      />
       <AppBar
         position="sticky"
         elevation={0}
@@ -387,16 +412,19 @@ export default function App() {
               </Menu>
             </>
           ) : (
-            <Button
-              size="small"
-              variant="outlined"
-              color="inherit"
-              onClick={handleRequestAdmin}
-              startIcon={<LockRoundedIcon sx={{ fontSize: '16px !important' }} />}
-              sx={{ minHeight: 36, px: 1.5, borderColor: tokens.lineStrong }}
-            >
-              Fiscal
-            </Button>
+            // Na página inicial as entradas de fiscal e organizador já estão na tela
+            route.name !== 'home' && (
+              <Button
+                size="small"
+                variant="outlined"
+                color="inherit"
+                onClick={handleRequestAdmin}
+                startIcon={<LockRoundedIcon sx={{ fontSize: '16px !important' }} />}
+                sx={{ minHeight: 36, px: 1.5, borderColor: tokens.lineStrong }}
+              >
+                Fiscal
+              </Button>
+            )
           )}
         </Toolbar>
       </AppBar>
@@ -427,13 +455,22 @@ export default function App() {
         {loading ? (
           <PageSkeleton />
         ) : route.name === 'home' ? (
+          <Landing
+            events={events}
+            access={access}
+            currentEvent={state.event}
+            onEvents={() => navigate({ name: 'events' })}
+            onFiscal={handleRequestAdmin}
+            onOrganizer={goOrganizer}
+          />
+        ) : route.name === 'events' ? (
           <Home
             events={events}
             onOpen={(e) => {
               void api.selectEvent(e.id)
               if (e.publicCode) openEvent(e.publicCode, false)
             }}
-            onOrganizer={() => navigate({ name: 'organizer' })}
+            onOrganizer={goOrganizer}
           />
         ) : route.name === 'organizer' ? (
           isOrganizer ? (
@@ -452,7 +489,7 @@ export default function App() {
                 title="Área do organizador"
                 text={api.mode === 'supabase' ? 'Entre com o e-mail de organizador para criar e editar eventos.' : 'Entre com o PIN para gerenciar os eventos deste aparelho.'}
               />
-              <Button variant="contained" onClick={() => setLoginTab(api.mode === 'supabase' ? 'organizador' : 'fiscal')}>
+              <Button variant="contained" onClick={() => openLogin('organizer')}>
                 Entrar
               </Button>
             </Box>
