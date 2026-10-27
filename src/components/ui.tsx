@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
-import { Box, Button, Card, Chip, Dialog, Drawer, IconButton, Typography } from '@mui/material'
+import { Box, Button, Card, Chip, Dialog, IconButton, Skeleton, SwipeableDrawer, Typography } from '@mui/material'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import { TOPBAR_H, look, radius, tabular, tokens } from '../theme'
+import { useBackClose } from '../hooks/useBackClose'
 
 /* Peças de interface compartilhadas pelas telas. */
 
@@ -201,11 +202,16 @@ export function BottomSheet({
   title?: ReactNode
   children: ReactNode
 }) {
+  useBackClose(open, onClose)
   return (
-    <Drawer
+    <SwipeableDrawer
       anchor="bottom"
       open={open}
       onClose={onClose}
+      // Arrastar para baixo fecha; abrir só pelos botões
+      onOpen={() => undefined}
+      disableSwipeToOpen
+      disableDiscovery
       slotProps={{
         paper: {
           sx: {
@@ -237,7 +243,7 @@ export function BottomSheet({
         </Box>
       )}
       {children}
-    </Drawer>
+    </SwipeableDrawer>
   )
 }
 
@@ -260,6 +266,7 @@ export function ConfirmDialog({
   tone?: 'error' | 'warning' | 'primary'
   icon?: ReactNode
 }) {
+  useBackClose(open, onClose)
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
       <Box sx={{ p: 3, pb: 2.5 }}>
@@ -287,6 +294,70 @@ export function ConfirmDialog({
 export function Time({ children, sx }: { children: ReactNode; sx?: object }) {
   return (
     <Box component="span" sx={{ ...tabular, fontWeight: 800, ...sx }}>
+      {children}
+    </Box>
+  )
+}
+
+/** Formato da tela enquanto os dados carregam (título, filtros e lista), sem pular o layout quando chegam. */
+export function PageSkeleton({ rows = 6 }: { rows?: number }) {
+  const bone = { bgcolor: tokens.raised, borderRadius: radius.sm }
+  return (
+    <Box role="status" aria-label="Carregando dados da prova" sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <Box sx={{ ...(look.accentBar && { borderLeft: `4px solid ${tokens.lineStrong}`, pl: 1.5 }) }}>
+        <Skeleton variant="rectangular" animation="wave" width="55%" height={34} sx={bone} />
+        <Skeleton variant="rectangular" animation="wave" width="35%" height={16} sx={{ ...bone, mt: 1 }} />
+      </Box>
+      <Box sx={{ display: 'flex', gap: 1 }}>
+        {[72, 96, 96].map((w, i) => (
+          <Skeleton key={i} variant="rectangular" animation="wave" width={w} height={36} sx={bone} />
+        ))}
+      </Box>
+      <Card sx={{ overflow: 'hidden' }}>
+        {Array.from({ length: rows }, (_, i) => (
+          <Box
+            key={i}
+            sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 2, minHeight: 60, borderTop: i ? `1px solid ${tokens.line}` : 0 }}
+          >
+            <Skeleton variant="rectangular" animation="wave" width={48} height={36} sx={bone} />
+            <Box sx={{ flex: 1 }}>
+              <Skeleton variant="rectangular" animation="wave" width={`${60 - (i % 3) * 12}%`} height={16} sx={bone} />
+              <Skeleton variant="rectangular" animation="wave" width="30%" height={12} sx={{ ...bone, mt: 0.75 }} />
+            </Box>
+            <Skeleton variant="rectangular" animation="wave" width={64} height={20} sx={bone} />
+          </Box>
+        ))}
+      </Card>
+    </Box>
+  )
+}
+
+/** Dica de atalho de teclado; só aparece em aparelhos com mouse (computador). */
+export function Kbd({ children, sx }: { children: ReactNode; sx?: object }) {
+  return (
+    <Box
+      component="kbd"
+      aria-hidden
+      sx={{
+        display: 'none',
+        '@media (hover: hover) and (pointer: fine)': { display: 'inline-flex' },
+        alignItems: 'center',
+        justifyContent: 'center',
+        minWidth: 22,
+        height: 22,
+        px: 0.75,
+        borderRadius: radius.sm,
+        border: '1px solid currentColor',
+        opacity: 0.7,
+        fontFamily: 'inherit',
+        fontSize: '0.75rem',
+        fontWeight: 700,
+        lineHeight: 1,
+        textTransform: 'none',
+        letterSpacing: 0,
+        ...sx,
+      }}
+    >
       {children}
     </Box>
   )
