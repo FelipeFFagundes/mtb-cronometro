@@ -14,6 +14,7 @@ import { afterHistorySettles, useBackClose } from './hooks/useBackClose'
 import { useRoute } from './hooks/useRoute'
 import { Home } from './components/Home'
 import { Landing } from './components/Landing'
+import { Help } from './components/Help'
 import { EventsAdmin } from './components/EventsAdmin'
 import { isSoundEnabled, playCountdownTick, setSoundEnabled, unlockAudio } from './lib/sound'
 import { BOTTOMNAV_H, TOPBAR_H, display, radius, tokens } from './theme'
@@ -52,6 +53,7 @@ import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import VolumeUpRoundedIcon from '@mui/icons-material/VolumeUpRounded'
 import VolumeOffRoundedIcon from '@mui/icons-material/VolumeOffRounded'
 import EventRoundedIcon from '@mui/icons-material/EventRounded'
+import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded'
 
 type AdminTab = 'largada' | 'chegada' | 'ranking' | 'pilotos'
 
@@ -374,6 +376,18 @@ export default function App() {
                   </ListItemIcon>
                   Som da largada: {soundOn ? 'ligado' : 'desligado'}
                 </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    setMenuAnchor(null)
+                    navigate({ name: 'help' })
+                  }}
+                  sx={{ minHeight: 48 }}
+                >
+                  <ListItemIcon>
+                    <HelpOutlineRoundedIcon fontSize="small" />
+                  </ListItemIcon>
+                  Como usar
+                </MenuItem>
                 {isOrganizer && (
                   <MenuItem
                     onClick={() => {
@@ -462,7 +476,10 @@ export default function App() {
             onEvents={() => navigate({ name: 'events' })}
             onFiscal={handleRequestAdmin}
             onOrganizer={goOrganizer}
+            onHelp={() => navigate({ name: 'help' })}
           />
+        ) : route.name === 'help' ? (
+          <Help role={access.role} />
         ) : route.name === 'events' ? (
           <Home
             events={events}

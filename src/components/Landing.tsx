@@ -2,11 +2,12 @@ import type { ReactNode } from 'react'
 import type { Access, EventInfo } from '../types'
 import { sortEvents, todayIso } from '../lib/events'
 import { display, look, radius, tokens } from '../theme'
-import { Box, ButtonBase, Chip, Typography } from '@mui/material'
+import { Box, Button, ButtonBase, Chip, Typography } from '@mui/material'
 import SensorsRoundedIcon from '@mui/icons-material/SensorsRounded'
 import TrafficRoundedIcon from '@mui/icons-material/TrafficRounded'
 import ManageAccountsRoundedIcon from '@mui/icons-material/ManageAccountsRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
+import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded'
 
 interface Props {
   events: EventInfo[]
@@ -16,6 +17,7 @@ interface Props {
   onEvents: () => void
   onFiscal: () => void
   onOrganizer: () => void
+  onHelp: () => void
 }
 
 function EntryCard({
@@ -86,7 +88,7 @@ function EntryCard({
 }
 
 /** Página inicial: escolher entre acompanhar uma prova, entrar como fiscal ou como organizador. */
-export function Landing({ events, access, currentEvent, onEvents, onFiscal, onOrganizer }: Props) {
+export function Landing({ events, access, currentEvent, onEvents, onFiscal, onOrganizer, onHelp }: Props) {
   const { open } = sortEvents(events)
   const today = open.filter((e) => e.startsOn === todayIso() && e.status === 'aberto')
   const canOperate = access.role !== 'public'
@@ -149,6 +151,10 @@ export function Landing({ events, access, currentEvent, onEvents, onFiscal, onOr
           onClick={onOrganizer}
         />
       </Box>
+
+      <Button color="inherit" startIcon={<HelpOutlineRoundedIcon />} onClick={onHelp} sx={{ alignSelf: 'center', color: tokens.muted }}>
+        Como usar o app
+      </Button>
     </Box>
   )
 }
