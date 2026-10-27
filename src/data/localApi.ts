@@ -1,4 +1,4 @@
-import type { Api, AppState, Rider, Run, Stage, StartGridItem } from '../types'
+import type { Api, AppState, EventInfo, Rider, Run, Stage, StartGridItem } from '../types'
 import { DEFAULT_CATEGORIES, DEFAULT_STAGES } from '../types'
 import { DEMO_RIDERS, DEMO_STAGES } from './demo'
 
@@ -12,6 +12,11 @@ function withRiderInfo(grid: StartGridItem[], riders: Rider[]): StartGridItem[] 
     const rider = riders.find((r) => r.num === item.num)
     return rider ? [{ ...item, riderName: rider.name, category: rider.cat }] : []
   })
+}
+
+/** No modo local há um evento só (vários eventos chegam com as telas de eventos). */
+function localEvent(): EventInfo {
+  return { id: 'local', name: 'Prova atual', startsOn: new Date().toISOString().slice(0, 10), status: 'aberto' }
 }
 
 function legacyGrid(): StartGridItem[] {
@@ -39,6 +44,7 @@ function read(): AppState {
       const riders = parsed.riders || []
       const grid = (parsed.grid ?? legacyGrid()).map((i) => ({ ...i, stageId: i.stageId || stages[0]?.id }))
       return {
+        event: parsed.event ?? localEvent(),
         riders,
         runs,
         categories,
@@ -49,7 +55,7 @@ function read(): AppState {
   } catch {
     /* ignora dados corrompidos */
   }
-  return { riders: [], runs: [], categories: [...DEFAULT_CATEGORIES], stages: [...DEFAULT_STAGES], grid: [] }
+  return { event: localEvent(), riders: [], runs: [], categories: [...DEFAULT_CATEGORIES], stages: [...DEFAULT_STAGES], grid: [] }
 }
 
 export function createLocalApi(): Api {
