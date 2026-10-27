@@ -46,7 +46,19 @@ export interface ImportResult {
   categoriesAdded: number
 }
 
+/** Dados de um evento (prova). */
+export interface EventInfo {
+  id: string
+  name: string
+  /** Data da prova (AAAA-MM-DD). */
+  startsOn: string
+  location?: string
+  status: 'rascunho' | 'aberto' | 'encerrado'
+}
+
 export interface AppState {
+  /** Evento em uso (as listas abaixo são dele). */
+  event?: EventInfo
   riders: Rider[]
   runs: Run[]
   categories: string[]

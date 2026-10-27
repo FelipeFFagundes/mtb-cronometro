@@ -448,7 +448,7 @@ export function Pilotos({ state, act }: Props) {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <PageHeader title="Prova" subtitle={`${riders.length} atletas · ${categories.length} categorias · ${stages.length} especiais`} />
+      <PageHeader title="Prova" subtitle={`${state.event ? `${state.event.name} · ` : ''}${riders.length} atletas · ${categories.length} categorias · ${stages.length} especiais`} />
 
       <Tabs
         value={tab}

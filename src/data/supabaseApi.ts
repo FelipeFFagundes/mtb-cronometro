@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { Api, AppState, PendingOp, Run, RunStatus, SyncStatus, Stage, StartGridItem } from '../types'
+import type { Api, AppState, EventInfo, PendingOp, Run, RunStatus, SyncStatus, Stage, StartGridItem } from '../types'
 import { DEFAULT_CATEGORIES, DEFAULT_STAGES } from '../types'
 import { DEMO_RIDERS, DEMO_STAGES } from './demo'
 import { clock } from '../lib/time'
@@ -14,11 +14,13 @@ import { clock } from '../lib/time'
  * - Em segundo plano a fila é enviada em ordem. Falha de rede = tenta de novo; rejeição do servidor
  *   (ex.: piloto já está na pista) = descarta a ação e avisa.
  * - As funções do banco são idempotentes: reenviar uma ação não duplica nada.
+ * - Tudo vale para o evento em uso: lido do aparelho ou, na primeira vez, o evento aberto mais recente.
  */
 
 const CACHE_KEY = 'mtb-cache-v1'
 const QUEUE_KEY = 'mtb-queue-v1'
 const OFFSET_KEY = 'mtb-offset-v1'
+const EVENT_KEY = 'mtb-event-v1'
 
 const OFFLINE_MSG = 'Sem conexão. Tente novamente quando houver sinal.'
 const SCHEMA_MSG = 'O banco precisa ser atualizado: rode supabase/schema.sql no Supabase.'
@@ -48,6 +50,22 @@ interface GridRow {
   scheduled_at: string
 }
 
+interface EventRow {
+  id: string
+  name: string
+  starts_on: string
+  location: string | null
+  status: EventInfo['status']
+}
+
+const toEvent = (e: EventRow): EventInfo => ({
+  id: e.id,
+  name: e.name,
+  startsOn: e.starts_on,
+  location: e.location ?? undefined,
+  status: e.status,
+})
+
 type OpKind = 'start' | 'finish' | 'dnf' | 'undo'
 
 interface Op {
@@ -56,6 +74,8 @@ interface Op {
   num?: string
   stageId?: string
   runId?: string
+  /** Evento da ação (ações gravadas por versões antigas não têm: vão para o evento em uso). */
+  eventId?: string
   /** Horário da ação (epoch ms, relógio do servidor estimado). */
   at: number
   label: string
@@ -149,6 +169,7 @@ function project(server: AppState, ops: Op[]): AppState {
     }
   }
   return {
+    event: server.event,
     riders: server.riders,
     runs,
     categories: server.categories,
@@ -171,6 +192,8 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     server.stages = [...DEFAULT_STAGES]
   }
   if (!server.grid) server.grid = [] // cache de versões antigas
+  /** Evento em uso; null até a primeira busca escolher um. */
+  let eventId: string | null = readJson<string | null>(EVENT_KEY, null) ?? server.event?.id ?? null
   let queue: Op[] = readJson<Op[]>(QUEUE_KEY, [])
   let clockOffset = readJson<number>(OFFSET_KEY, 0)
   let online = typeof navigator === 'undefined' ? true : navigator.onLine
@@ -202,17 +225,40 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     throw new Error(r.error.message)
   }
 
-  /** Busca o estado do servidor e guarda em cache. */
+  /**
+   * Escolhe o evento em uso: o que o aparelho já usava, se ainda existir; senão o aberto mais
+   * recente (ou o mais recente de todos). Devolve null se a tabela de eventos não existir.
+   */
+  async function resolveEvent(): Promise<EventInfo | null> {
+    const r = await sb.from('events').select('id,name,starts_on,location,status').order('starts_on', { ascending: false }).order('created_at', { ascending: false })
+    if (r.error) {
+      if (classify({ error: r.error, status: r.status }) === 'network') setOnline(false)
+      else warnSchema() // banco ainda sem eventos: rode o schema.sql novo
+      return null
+    }
+    const list = ((r.data ?? []) as EventRow[]).map(toEvent)
+    const chosen = list.find((e) => e.id === eventId) ?? list.find((e) => e.status === 'aberto') ?? list[0] ?? null
+    if (chosen && chosen.id !== eventId) {
+      eventId = chosen.id
+      writeJson(EVENT_KEY, eventId)
+    }
+    return chosen
+  }
+
+  /** Busca o estado do servidor (do evento em uso) e guarda em cache. */
   async function pull(): Promise<boolean> {
     if (pulling) return online
     pulling = true
     try {
+      const event = await resolveEvent()
+      if (!event) return false
+      const ev = event.id
       const [riders, runs, categories, stages, grid] = await Promise.all([
-        sb.from('riders').select('num,name,category').order('num'),
-        sb.from('runs').select('id,rider_num,stage_id,started_at,finished_at,status').order('started_at'),
-        sb.from('categories').select('name').order('name'),
-        sb.from('stages').select('id,name,position').order('position'),
-        sb.from('start_grid').select('stage_id,rider_num,position,scheduled_at').order('position'),
+        sb.from('riders').select('num,name,category').eq('event_id', ev).order('num'),
+        sb.from('runs').select('id,rider_num,stage_id,started_at,finished_at,status').eq('event_id', ev).order('started_at'),
+        sb.from('categories').select('name').eq('event_id', ev).order('name'),
+        sb.from('stages').select('id,name,position').eq('event_id', ev).order('position'),
+        sb.from('start_grid').select('stage_id,rider_num,position,scheduled_at').eq('event_id', ev).order('position'),
       ])
       if (riders.error || runs.error) {
         const failed = runs.error ? runs : riders
@@ -267,6 +313,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
             })
 
       server = {
+        event,
         riders: riderList,
         runs: ((runs.data ?? []) as RunRow[]).map((r) => toRun(r, firstStageId)),
         categories: cats.length > 0 ? cats : [...DEFAULT_CATEGORIES],
@@ -305,8 +352,9 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
   async function send(op: Op): Promise<Resp> {
     const at = new Date(op.at).toISOString()
     const stage = op.stageId ?? null
-    if (op.kind === 'start') return sb.rpc('start_run', { p_num: op.num, p_at: at, p_id: op.id, p_stage: stage })
-    if (op.kind === 'finish') return sb.rpc('finish_run', { p_num: op.num, p_at: at, p_stage: stage })
+    const ev = op.eventId ?? eventId
+    if (op.kind === 'start') return sb.rpc('start_run', { p_event: ev, p_num: op.num, p_at: at, p_id: op.id, p_stage: stage })
+    if (op.kind === 'finish') return sb.rpc('finish_run', { p_event: ev, p_num: op.num, p_at: at, p_stage: stage })
     if (op.kind === 'dnf') return sb.rpc('dnf_run', { p_id: op.runId, p_at: at })
     return sb.rpc('undo_run', { p_id: op.runId })
   }
@@ -325,6 +373,8 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
   /** Envia a fila em ordem. */
   async function flush(): Promise<void> {
     if (flushing || queue.length === 0) return
+    // Ações gravadas antes da atualização não têm evento: só envia depois de saber qual é o evento em uso
+    if (!eventId && queue.some((o) => !o.eventId) && !(await resolveEvent())) return
     flushing = true
     syncing = true
     emit()
@@ -370,11 +420,17 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     if (online && queue.some((o) => (o.nextTry ?? 0) <= Date.now())) setTimeout(() => void flush(), 300)
   }
 
-  function enqueue(op: Omit<Op, 'createdAt' | 'attempts'>) {
-    queue = [...queue, { ...op, createdAt: Date.now(), attempts: 0 }]
+  function enqueue(op: Omit<Op, 'createdAt' | 'attempts' | 'eventId'>) {
+    queue = [...queue, { ...op, eventId: eventId ?? undefined, createdAt: Date.now(), attempts: 0 }]
     saveQueue()
     emit()
     void flush()
+  }
+
+  /** Evento em uso para gravar cadastros; sem ele (nunca carregou) não dá para gravar. */
+  const ev = (): string => {
+    if (!eventId) throw new Error(online ? 'Carregando o evento. Tente de novo em instantes.' : OFFLINE_MSG)
+    return eventId
   }
 
   const who = (num: string) => {
@@ -420,6 +476,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, () => void pull())
         .on('postgres_changes', { event: '*', schema: 'public', table: 'stages' }, () => void pull())
         .on('postgres_changes', { event: '*', schema: 'public', table: 'start_grid' }, () => void pull())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => void pull())
         .subscribe()
       return () => {
         listeners.delete(onChange)
@@ -460,7 +517,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       if (server.categories.includes(trimmed)) throw new Error(`Categoria "${trimmed}" já existe`)
 
       // Tenta inserir na tabela categories
-      const { error } = await sb.from('categories').insert({ name: trimmed })
+      const { error } = await sb.from('categories').insert({ event_id: ev(), name: trimmed })
       if (error && error.code !== '42P01' && error.code !== 'PGRST205') {
         ensure({ error, status: 400 })
       } else if (error && (error.code === '42P01' || error.code === 'PGRST205')) {
@@ -480,10 +537,10 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       }
 
       // Atualiza os atletas vinculados a esta categoria no Supabase (a grade acompanha, pois lê do piloto)
-      ensure(await sb.from('riders').update({ category: trimmed }).eq('category', oldName))
+      ensure(await sb.from('riders').update({ category: trimmed }).eq('event_id', ev()).eq('category', oldName))
 
       // Atualiza o nome na tabela categories
-      const { error } = await sb.from('categories').update({ name: trimmed }).eq('name', oldName)
+      const { error } = await sb.from('categories').update({ name: trimmed }).eq('event_id', ev()).eq('name', oldName)
       if (error && error.code !== '42P01' && error.code !== 'PGRST205') {
         ensure({ error, status: 400 })
       }
@@ -499,8 +556,8 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     },
 
     async removeCategory(name: string) {
-      ensure(await sb.from('riders').update({ category: 'Sem Categoria' }).eq('category', name))
-      const { error } = await sb.from('categories').delete().eq('name', name)
+      ensure(await sb.from('riders').update({ category: 'Sem Categoria' }).eq('event_id', ev()).eq('category', name))
+      const { error } = await sb.from('categories').delete().eq('event_id', ev()).eq('name', name)
       if (error && error.code !== '42P01' && error.code !== 'PGRST205') {
         ensure({ error, status: 400 })
       }
@@ -518,14 +575,14 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
         throw new Error(`Especial "${trimmed}" já existe`)
       }
       const position = Math.max(0, ...server.stages.map((s) => s.order)) + 1
-      ensure(await sb.from('stages').insert({ id: `stage-${Date.now()}`, name: trimmed, position }))
+      ensure(await sb.from('stages').insert({ event_id: ev(), id: `stage-${Date.now()}`, name: trimmed, position }))
       await pull()
     },
 
     async updateStage(id: string, name: string) {
       const trimmed = name.trim()
       if (!trimmed) throw new Error('Nome da especial não pode ser vazio')
-      ensure(await sb.from('stages').update({ name: trimmed }).eq('id', id))
+      ensure(await sb.from('stages').update({ name: trimmed }).eq('event_id', ev()).eq('id', id))
       await pull()
     },
 
@@ -534,7 +591,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
         throw new Error('A prova precisa de pelo menos uma especial cadastrada')
       }
       // O banco apaga em cascata as descidas e a grade da especial e renumera as demais
-      ensure(await sb.rpc('remove_stage', { p_id: id }))
+      ensure(await sb.rpc('remove_stage', { p_event: ev(), p_id: id }))
       await pull()
     },
 
@@ -544,17 +601,17 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
         position: idx + 1,
         at: new Date(i.scheduledEpoch).toISOString(),
       }))
-      ensure(await sb.rpc('set_start_grid', { p_stage: stageId, p_items }))
+      ensure(await sb.rpc('set_start_grid', { p_event: ev(), p_stage: stageId, p_items }))
       await pull()
     },
 
     async clearAllGrids() {
-      ensure(await sb.rpc('set_start_grid', { p_stage: null }))
+      ensure(await sb.rpc('set_start_grid', { p_event: ev(), p_stage: null }))
       await pull()
     },
 
     async addRider(rider) {
-      const r = await sb.from('riders').insert({ num: rider.num, name: rider.name, category: rider.cat })
+      const r = await sb.from('riders').insert({ event_id: ev(), num: rider.num, name: rider.name, category: rider.cat })
       if (r.error?.code === '23505') throw new Error(`Número #${rider.num} já existe`)
       ensure(r)
       await pull()
@@ -564,6 +621,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       const r = await sb
         .from('riders')
         .update({ num: updated.num, name: updated.name, category: updated.cat })
+        .eq('event_id', ev())
         .eq('num', oldNum)
 
       if (r.error?.code === '23505') throw new Error(`Número #${updated.num} já está em uso por outro piloto`)
@@ -572,7 +630,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     },
 
     async removeRider(num) {
-      ensure(await sb.from('riders').delete().eq('num', num))
+      ensure(await sb.from('riders').delete().eq('event_id', ev()).eq('num', num))
       await pull()
     },
 
@@ -580,13 +638,13 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       const known = new Set(server.riders.map((r) => r.num))
       const newCats = categories.filter((c) => !server.categories.includes(c))
       if (newCats.length > 0) {
-        ensure(await sb.from('categories').upsert(newCats.map((name) => ({ name })), { onConflict: 'name', ignoreDuplicates: true }))
+        ensure(await sb.from('categories').upsert(newCats.map((name) => ({ event_id: ev(), name })), { onConflict: 'event_id,name', ignoreDuplicates: true }))
       }
       if (riders.length > 0) {
         ensure(
           await sb
             .from('riders')
-            .upsert(riders.map((r) => ({ num: r.num, name: r.name, category: r.cat })), { onConflict: 'num' }),
+            .upsert(riders.map((r) => ({ event_id: ev(), num: r.num, name: r.name, category: r.cat })), { onConflict: 'event_id,num' }),
         )
       }
       await pull()
@@ -665,20 +723,20 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
 
     async loadDemo() {
       // Limpa descidas e grades anteriores para deixar sem tempos preenchidos
-      ensure(await sb.from('runs').delete().not('id', 'is', null))
-      ensure(await sb.rpc('set_start_grid', { p_stage: null }))
-      ensure(await sb.from('stages').upsert(DEMO_STAGES.map((s) => ({ id: s.id, name: s.name, position: s.order }))))
+      ensure(await sb.from('runs').delete().eq('event_id', ev()))
+      ensure(await sb.rpc('set_start_grid', { p_event: ev(), p_stage: null }))
+      ensure(await sb.from('stages').upsert(DEMO_STAGES.map((s) => ({ event_id: ev(), id: s.id, name: s.name, position: s.order })), { onConflict: 'event_id,id' }))
       ensure(
         await sb
           .from('categories')
-          .upsert(DEFAULT_CATEGORIES.map((name) => ({ name })), { onConflict: 'name', ignoreDuplicates: true }),
+          .upsert(DEFAULT_CATEGORIES.map((name) => ({ event_id: ev(), name })), { onConflict: 'event_id,name', ignoreDuplicates: true }),
       )
-      ensure(await sb.from('riders').upsert(DEMO_RIDERS.map((r) => ({ num: r.num, name: r.name, category: r.cat }))))
+      ensure(await sb.from('riders').upsert(DEMO_RIDERS.map((r) => ({ event_id: ev(), num: r.num, name: r.name, category: r.cat })), { onConflict: 'event_id,num' }))
       await pull()
     },
 
     async reset() {
-      ensure(await sb.from('riders').delete().neq('num', ''))
+      ensure(await sb.from('riders').delete().eq('event_id', ev()))
       queue = []
       saveQueue()
       await pull()
