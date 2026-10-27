@@ -54,3 +54,22 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Troca de aba: a barra superior e a inferior ficam paradas; o conteúdo entra com um deslize curto */
+::view-transition-old(root) {
+  animation: 120ms ease-out both vt-fade-out;
+}
+::view-transition-new(root) {
+  animation: 180ms ease-out both vt-slide-in;
+}
+@keyframes vt-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes vt-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}

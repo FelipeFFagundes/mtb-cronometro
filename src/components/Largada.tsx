@@ -6,9 +6,12 @@ export type { StartGridItem } from '../types'
 import { DEFAULT_STAGES } from '../types'
 import { clock } from '../lib/time'
 import { gridForStage } from '../lib/grid'
+import { playCountdownTick, playStartGo, unlockAudio } from '../lib/sound'
 import { useNow } from '../hooks/useNow'
 import { BOTTOMNAV_H, radius, tabular, tokens } from '../theme'
-import { ChipSelect, ConfirmDialog, EmptyState, ListCard, PageHeader, RiderPlate, Section, StickyBar } from './ui'
+import { ChipSelect, ConfirmDialog, EmptyState, Kbd, ListCard, PageHeader, RiderPlate, Section, StickyBar } from './ui'
+import { useBackClose } from '../hooks/useBackClose'
+import { isTyping, overlayOpen, useKeydown } from '../hooks/useKeyboard'
 import {
   Box,
   ButtonBase,
@@ -52,11 +55,13 @@ export function Largada({ state, act, online }: Props) {
 
   const [selectedNum, setSelectedNum] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
   const [undoTarget, setUndoTarget] = useState<Run | null>(null)
 
   // Estado da Contagem Regressiva
   const [countdownTarget, setCountdownTarget] = useState<{ rider: Rider; stage: Stage } | null>(null)
   const [count, setCount] = useState<number | 'VAI!'>(3)
+  useBackClose(Boolean(countdownTarget), () => setCountdownTarget(null))
 
   // Referências para evitar que o useEffect da contagem re-dispare se props ou estados mudarem
   const actRef = useRef(act)
@@ -71,6 +76,7 @@ export function Largada({ state, act, online }: Props) {
     if (!countdownTarget) return
 
     setCount(3)
+    playCountdownTick()
     navigator.vibrate?.(60)
     let current = 3
     let hasFired = false
@@ -79,13 +85,23 @@ export function Largada({ state, act, online }: Props) {
       current -= 1
       if (current === 0) {
         setCount('VAI!')
+        playStartGo()
         navigator.vibrate?.(400)
         if (!hasFired) {
           hasFired = true
           const { rider, stage } = countdownTarget
+          let runId: string | undefined
           void actRef.current(
-            () => api.startRun(rider.num, stage.id).then(() => undefined),
+            async () => {
+              runId = (await api.startRun(rider.num, stage.id))?.id
+            },
             `#${rider.num} ${rider.name} largou na ${stage.name}!` + (onlineRef.current ? '' : ' (salvo offline)'),
+            {
+              run: async () => {
+                if (runId) await api.undoRun(runId)
+              },
+              doneMsg: `Largada de #${rider.num} desfeita. O piloto voltou para a fila.`,
+            },
           )
         }
       } else if (current < 0) {
@@ -93,6 +109,7 @@ export function Largada({ state, act, online }: Props) {
         setCountdownTarget(null)
       } else {
         setCount(current)
+        playCountdownTick()
         navigator.vibrate?.(60)
       }
     }, 1000)
@@ -101,6 +118,8 @@ export function Largada({ state, act, online }: Props) {
   }, [countdownTarget])
 
   const startCountdown = (r: Rider) => {
+    // O toque no LARGAR libera o áudio no celular (precisa ser dentro do gesto do usuário)
+    unlockAudio()
     if (noCategory(r)) {
       return act(async () => {
         throw new Error(`Piloto #${r.num} (${r.name}) está sem categoria. Defina uma categoria em "Prova" antes de largar.`)
@@ -157,6 +176,18 @@ export function Largada({ state, act, online }: Props) {
     .slice()
     .sort((a, b) => b.start - a.start)
     .slice(0, 6)
+
+  // Atalhos (computador): Enter larga o piloto da vez, "/" busca na fila
+  useKeydown((e) => {
+    if (overlayOpen() || isTyping(e.target)) return
+    if (e.key === 'Enter' && selected) {
+      e.preventDefault()
+      void startCountdown(selected)
+    } else if (e.key === '/' && searchRef.current) {
+      e.preventDefault()
+      searchRef.current.focus()
+    }
+  })
 
   const onTrackCount = state.runs.filter((r) => r.status === 'track').length
   const selectedGrid = selected ? gridMap.get(selected.num) : undefined
@@ -239,12 +270,29 @@ export function Largada({ state, act, online }: Props) {
                 placeholder="Buscar placa ou nome"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                inputRef={searchRef}
+                onKeyDown={(e) => {
+                  // Digitar a placa e Enter: larga o primeiro da busca
+                  if (e.key === 'Enter' && visibleQueue[0]) {
+                    e.preventDefault()
+                    const r = visibleQueue[0]
+                    setSelectedNum(r.num)
+                    setSearch('')
+                    searchRef.current?.blur()
+                    void startCountdown(r)
+                  }
+                }}
                 sx={{ mb: 1 }}
                 slotProps={{
                   input: {
                     startAdornment: (
                       <InputAdornment position="start">
                         <SearchRoundedIcon />
+                      </InputAdornment>
+                    ),
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <Kbd>/</Kbd>
                       </InputAdornment>
                     ),
                   },
@@ -372,6 +420,7 @@ export function Largada({ state, act, online }: Props) {
                 <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   LARGAR #{selected.num} · {selected.name.split(' ')[0]}
                 </Box>
+                <Kbd sx={{ ml: 1.5 }}>Enter</Kbd>
               </Button>
             </Container>
           </Box>

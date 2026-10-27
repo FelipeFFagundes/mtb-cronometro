@@ -6,6 +6,7 @@ export type { StartGridItem } from '../types'
 import { BOTTOMNAV_H, tokens } from '../theme'
 import { BottomSheet, ChipSelect, ConfirmDialog, EmptyState, ListCard, PageHeader, RiderPlate, Section } from './ui'
 import { StartGridList } from './StartGridList'
+import { ImportCsv } from './ImportCsv'
 import {
   Box,
   Button,
@@ -33,6 +34,7 @@ import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import PeopleAltRoundedIcon from '@mui/icons-material/PeopleAltRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import ScienceRoundedIcon from '@mui/icons-material/ScienceRounded'
+import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded'
 
 interface Props {
   state: AppState
@@ -106,6 +108,7 @@ export function Pilotos({ state, act }: Props) {
   const gridItems = state.grid
   const [confirmClear, setConfirmClear] = useState<'stage' | 'all' | null>(null)
   const [confirmDemo, setConfirmDemo] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
 
   // Se a especial da grade deixar de existir, usa a primeira
   const activeGridStageId = stages.some((s) => s.id === gridStageId) ? gridStageId : stages[0]?.id || 'stage-1'
@@ -493,7 +496,7 @@ export function Pilotos({ state, act }: Props) {
             }}
           />
           {riders.length === 0 ? (
-            <EmptyState icon={<PeopleAltRoundedIcon />} title="Nenhum atleta" text="Toque em “Novo atleta” para cadastrar." />
+            <EmptyState icon={<PeopleAltRoundedIcon />} title="Nenhum atleta" text="Toque em “Novo atleta” ou importe uma planilha." />
           ) : (
             <ListCard>
               {visibleRiders.length === 0 && (
@@ -521,16 +524,21 @@ export function Pilotos({ state, act }: Props) {
               ))}
             </ListCard>
           )}
-          {/* Dados de teste: atletas de exemplo para preencher a prova e testar */}
-          <Button
-            variant="outlined"
-            color="inherit"
-            startIcon={<ScienceRoundedIcon />}
-            onClick={() => setConfirmDemo(true)}
-            sx={{ alignSelf: 'flex-start', borderStyle: 'dashed' }}
-          >
-            Carregar atletas de exemplo
-          </Button>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            <Button variant="outlined" color="inherit" startIcon={<UploadFileRoundedIcon />} onClick={() => setImportOpen(true)}>
+              Importar planilha
+            </Button>
+            {/* Dados de teste: atletas de exemplo para preencher a prova e testar */}
+            <Button
+              variant="outlined"
+              color="inherit"
+              startIcon={<ScienceRoundedIcon />}
+              onClick={() => setConfirmDemo(true)}
+              sx={{ borderStyle: 'dashed' }}
+            >
+              Atletas de exemplo
+            </Button>
+          </Box>
           <Box sx={{ height: 56 }} />
           <Fab
             variant="extended"
@@ -749,6 +757,8 @@ export function Pilotos({ state, act }: Props) {
       )}
 
       {/* ============ PAINÉIS E CONFIRMAÇÕES ============ */}
+      <ImportCsv open={importOpen} onClose={() => setImportOpen(false)} state={state} act={act} />
+
       <BottomSheet open={addOpen} onClose={() => setAddOpen(false)} title="Novo atleta">
         <Box component="form" onSubmit={(e) => void submitRider(e)} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <Box sx={{ display: 'flex', gap: 1.5 }}>

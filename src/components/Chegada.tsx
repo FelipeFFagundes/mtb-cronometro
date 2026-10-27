@@ -6,7 +6,8 @@ import { DEFAULT_STAGES } from '../types'
 import { clock, fmt } from '../lib/time'
 import { LiveTimer } from './LiveTimer'
 import { radius, tabular, tokens } from '../theme'
-import { BottomSheet, ChipSelect, ConfirmDialog, EmptyState, ListCard, PageHeader, RiderPlate, Section, StickyBar } from './ui'
+import { BottomSheet, ChipSelect, ConfirmDialog, EmptyState, Kbd, ListCard, PageHeader, RiderPlate, Section, StickyBar } from './ui'
+import { isTyping, overlayOpen, useKeydown } from '../hooks/useKeyboard'
 import { Box, Button, ButtonBase, Chip, IconButton, Typography } from '@mui/material'
 import SportsScoreRoundedIcon from '@mui/icons-material/SportsScoreRounded'
 import WarningRoundedIcon from '@mui/icons-material/WarningRounded'
@@ -96,6 +97,24 @@ export function Chegada({ state, act, online }: Props) {
     .filter((r) => r.status === 'track' && (selectedFilterStage === 'all' || (r.stageId || stages[0]?.id) === selectedFilterStage))
     .sort((a, b) => a.start - b.start)
 
+  // Atalhos (computador): 1 a 9 registram a chegada do piloto naquela posição; Enter confirma
+  useKeydown((e) => {
+    if (isTyping(e.target)) return
+    if (confirmTarget) {
+      if (e.key === 'Enter' && !(e.target instanceof HTMLButtonElement)) {
+        e.preventDefault()
+        void executeFinish(confirmTarget)
+      }
+      return
+    }
+    if (overlayOpen() || !/^[1-9]$/.test(e.key)) return
+    const run = track[Number(e.key) - 1]
+    if (run) {
+      e.preventDefault()
+      requestFinish(run.id, run.num)
+    }
+  })
+
   const done = state.runs
     .filter((r) => r.status !== 'track' && r.end != null)
     .sort((a, b) => b.end! - a.end!)
@@ -146,11 +165,14 @@ export function Chegada({ state, act, online }: Props) {
                 >
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
                     <RiderPlate num={run.num} size="md" />
-                    {stages.length > 1 && (
-                      <Typography variant="caption" color="text.secondary" noWrap sx={{ fontWeight: 700, minWidth: 0 }}>
-                        {st?.name ?? 'Especial'}
-                      </Typography>
-                    )}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                      {stages.length > 1 && (
+                        <Typography variant="caption" color="text.secondary" noWrap sx={{ fontWeight: 700, minWidth: 0 }}>
+                          {st?.name ?? 'Especial'}
+                        </Typography>
+                      )}
+                      {idx < 9 && <Kbd sx={{ color: 'text.secondary' }}>{idx + 1}</Kbd>}
+                    </Box>
                   </Box>
                   <Typography
                     sx={{
@@ -269,6 +291,7 @@ export function Chegada({ state, act, online }: Props) {
               sx={{ mt: 3, minHeight: 60, fontSize: '1.15rem', fontWeight: 900 }}
             >
               CONFIRMAR CHEGADA
+              <Kbd sx={{ ml: 1.5 }}>Enter</Kbd>
             </Button>
             <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
               <Button fullWidth variant="outlined" color="inherit" onClick={() => setConfirmTarget(null)}>
