@@ -1,27 +1,27 @@
-﻿numero;nome;categoria
-1;Rafael Menezes;Elite Masculino
-2;Gustavo Pereira;Elite Masculino
-3;Lucas Bortolini;Elite Masculino
-4;Matheus Zanella;Elite Masculino
-5;Diego Fontana;Elite Masculino
-11;Camila Rossetto;Elite Feminino
-12;Juliana Dal Pra;Elite Feminino
-13;Fernanda Lazzari;Elite Feminino
-14;Bruna Tessaro;Elite Feminino
-21;Pedro Henrique Basso;Junior
-22;Vinícius Grando;Junior
-23;Arthur Bianchi;Junior
-24;Laura Ceccon;Junior
-31;Thiago Andreolla;Sub 30
-32;Eduardo Sartori;Sub 30
-33;Rodrigo Piccoli;Sub 30
-34;Felipe Marchetti;Sub 30
-41;Marcelo Giacomini;Master A (30+)
-42;André Bertoldi;Master A (30+)
-43;Ricardo Tonial;Master A (30+)
-44;Fábio Pagnussat;Master A (30+)
-51;Paulo Roberto Zago;Master B (40+)
-52;Sérgio Lunardi;Master B (40+)
-53;Cláudio Vanz;Master B (40+)
-61;Daniel Fiorentin;E-Bike
-62;Leandro Caldart;E-Bike
+﻿numero;nome;categoria;equipe
+1;Rafael Menezes;Elite Masculino;Trilha Norte
+2;Gustavo Pereira;Elite Masculino;
+3;Lucas Bortolini;Elite Masculino;Pedal Erechim
+4;Matheus Zanella;Elite Masculino;Enduro Alto Uruguai
+5;Diego Fontana;Elite Masculino;Serra Bikes
+11;Camila Rossetto;Elite Feminino;Trilha Norte
+12;Juliana Dal Pra;Elite Feminino;
+13;Fernanda Lazzari;Elite Feminino;Pedal Erechim
+14;Bruna Tessaro;Elite Feminino;Enduro Alto Uruguai
+21;Pedro Henrique Basso;Junior;Serra Bikes
+22;Vinícius Grando;Junior;Trilha Norte
+23;Arthur Bianchi;Junior;
+24;Laura Ceccon;Junior;Pedal Erechim
+31;Thiago Andreolla;Sub 30;Enduro Alto Uruguai
+32;Eduardo Sartori;Sub 30;Serra Bikes
+33;Rodrigo Piccoli;Sub 30;Trilha Norte
+34;Felipe Marchetti;Sub 30;
+41;Marcelo Giacomini;Master A (30+);Pedal Erechim
+42;André Bertoldi;Master A (30+);Enduro Alto Uruguai
+43;Ricardo Tonial;Master A (30+);Serra Bikes
+44;Fábio Pagnussat;Master A (30+);Trilha Norte
+51;Paulo Roberto Zago;Master B (40+);
+52;Sérgio Lunardi;Master B (40+);Pedal Erechim
+53;Cláudio Vanz;Master B (40+);Enduro Alto Uruguai
+61;Daniel Fiorentin;E-Bike;Serra Bikes
+62;Leandro Caldart;E-Bike;Trilha Norte
