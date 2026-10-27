@@ -8,6 +8,7 @@ import { afterHistorySettles } from './useBackClose'
  *   #/e/K7MQ2             evento K7MQ2, telas do público
  *   #/e/K7MQ2/fiscal      evento K7MQ2, telas do fiscal/organizador
  *   #/organizar           eventos do organizador
+ *   #/ajuda               como usar o app
  * O antigo "#admin" abre as telas do fiscal no evento em uso.
  */
 
@@ -15,6 +16,7 @@ export type Route =
   | { name: 'home' }
   | { name: 'events' }
   | { name: 'organizer' }
+  | { name: 'help' }
   /** code vazio = evento em uso (links antigos "#admin"). */
   | { name: 'event'; code: string; fiscal: boolean }
 
@@ -23,6 +25,7 @@ export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean)
   if (parts[0] === 'organizar') return { name: 'organizer' }
   if (parts[0] === 'eventos') return { name: 'events' }
+  if (parts[0] === 'ajuda') return { name: 'help' }
   if (parts[0] === 'e' && parts[1]) {
     return { name: 'event', code: decodeURIComponent(parts[1]).toUpperCase(), fiscal: parts[2] === 'fiscal' }
   }
@@ -32,6 +35,7 @@ export function parseRoute(hash: string): Route {
 export function routeHash(route: Route): string {
   if (route.name === 'organizer') return '#/organizar'
   if (route.name === 'events') return '#/eventos'
+  if (route.name === 'help') return '#/ajuda'
   if (route.name === 'event') return `#/e/${encodeURIComponent(route.code)}${route.fiscal ? '/fiscal' : ''}`
   return '#/'
 }

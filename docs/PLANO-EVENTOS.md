@@ -183,6 +183,7 @@ Cada etapa deixa o app funcionando. Se faltar tempo antes de uma prova, as etapa
   |---|---|
   | `#/` | Página inicial: acompanhar uma prova, fiscal ou organizador |
   | `#/eventos` | Lista de eventos |
+  | `#/ajuda` | Como usar: passo a passo do fiscal, do organizador, do público e checklist do dia da prova |
   | `#/e/K7MQ2` | Público do evento |
   | `#/e/K7MQ2/fiscal` | Fiscal e organizador do evento |
   | `#/organizar` | Área do organizador |
