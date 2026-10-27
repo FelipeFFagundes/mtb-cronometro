@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { Api, AppState, EventInfo, PendingOp, Run, RunStatus, SyncStatus, Stage, StartGridItem } from '../types'
+import type { Access, Api, AppState, EventInfo, MarshalAccessInfo, PendingOp, Role, Run, RunStatus, SyncStatus, Stage, StartGridItem } from '../types'
 import { DEFAULT_CATEGORIES, DEFAULT_STAGES } from '../types'
 import { DEMO_RIDERS, DEMO_STAGES } from './demo'
 import { clock } from '../lib/time'
@@ -21,9 +21,12 @@ const CACHE_KEY = 'mtb-cache-v1'
 const QUEUE_KEY = 'mtb-queue-v1'
 const OFFSET_KEY = 'mtb-offset-v1'
 const EVENT_KEY = 'mtb-event-v1'
+const ACCESS_KEY = 'mtb-access-v1'
 
 const OFFLINE_MSG = 'Sem conexão. Tente novamente quando houver sinal.'
 const SCHEMA_MSG = 'O banco precisa ser atualizado: rode supabase/schema.sql no Supabase.'
+const DENIED_MSG = 'Sem permissão para enviar: entre de novo com o código do fiscal. As ações continuam guardadas.'
+const ANON_DISABLED_MSG = 'O login anônimo está desligado no Supabase. Ative em Authentication > Sign In / Providers > Allow anonymous sign-ins.'
 const REQUEST_TIMEOUT_MS = 8000
 /** Chegada sem largada correspondente é descartada depois deste tempo. */
 const WAIT_GIVE_UP_MS = 30 * 60 * 1000
@@ -89,7 +92,7 @@ interface Resp {
   status: number
 }
 
-type Outcome = 'ok' | 'network' | 'wait' | 'blocked' | 'rejected'
+type Outcome = 'ok' | 'network' | 'wait' | 'blocked' | 'denied' | 'rejected'
 
 const toRun = (r: RunRow, fallbackStageId: string): Run => ({
   id: r.id,
@@ -132,6 +135,8 @@ function classify(r: Resp): Outcome {
   // status 0 = a requisição nem chegou ao servidor (sem rede / timeout)
   if (r.status === 0 || r.status === 408 || r.status === 429 || r.status >= 500) return 'network'
   if (r.error.code === 'MTB01') return 'wait'
+  // Sessão expirada ou acesso revogado: guarda a ação até o fiscal entrar de novo
+  if (r.error.code === 'MTB08') return 'denied'
   // função inexistente: o schema.sql novo ainda não foi aplicado no banco
   if (r.error.code === 'PGRST202' || r.status === 404) return 'blocked'
   return 'rejected'
@@ -201,6 +206,10 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
   let pulling = false
   let flushing = false
 
+  // Papel do aparelho no evento, guardado para valer sem sinal
+  let access: Access & { eventId?: string } = readJson<Access & { eventId?: string }>(ACCESS_KEY, { role: 'public' })
+  let deniedWarned = false
+
   const listeners = new Set<() => void>()
   const noticeListeners = new Set<(msg: string, isError: boolean) => void>()
   const emit = () => listeners.forEach((l) => l())
@@ -222,7 +231,29 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       setOnline(false)
       throw new Error(OFFLINE_MSG)
     }
+    // Regra de acesso do banco recusou a gravação direta
+    if (r.error.code === '42501') throw new Error('Sem permissão: só o organizador pode fazer isso.')
     throw new Error(r.error.message)
+  }
+
+  function setAccess(next: Access & { eventId?: string }) {
+    if (next.role === access.role && next.email === access.email && next.eventId === access.eventId) return
+    access = next
+    writeJson(ACCESS_KEY, access)
+    emit()
+  }
+
+  /** Confere no servidor o papel deste aparelho no evento em uso (sem sinal, mantém o que estava). */
+  async function refreshAccess() {
+    const { data } = await sb.auth.getSession()
+    const session = data.session
+    if (!session) return setAccess({ role: 'public' })
+    if (!eventId) return
+    const r = await sb.rpc('my_access', { p_event: eventId })
+    if (r.error) return
+    const role = r.data as Role
+    if (role !== 'public') deniedWarned = false
+    setAccess({ role, email: session.user.email ?? undefined, eventId })
   }
 
   /**
@@ -323,6 +354,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       writeJson(CACHE_KEY, server)
       online = true
       emit()
+      void refreshAccess()
       return true
     } finally {
       pulling = false
@@ -391,6 +423,14 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
         } else if (outcome === 'network') {
           online = false
           break
+        } else if (outcome === 'denied') {
+          // Sem permissão (sessão expirou ou o código foi trocado): nada é descartado
+          const retryAt = Date.now() + 30000
+          queue.forEach((o) => (o.nextTry = retryAt))
+          if (!deniedWarned) notice(DENIED_MSG, true)
+          deniedWarned = true
+          void refreshAccess()
+          break
         } else if (outcome === 'blocked') {
           const retryAt = Date.now() + 30000
           queue.forEach((o) => (o.nextTry = retryAt))
@@ -458,6 +498,11 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
   setInterval(() => {
     if (online) void syncClock()
   }, 30000)
+  // Login, saída ou renovação da sessão em outra aba: confere o papel de novo
+  sb.auth.onAuthStateChange(() => {
+    setTimeout(() => void refreshAccess(), 0)
+  })
+
   reconnect()
 
   return {
@@ -509,6 +554,76 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     onNotice(cb) {
       noticeListeners.add(cb)
       return () => noticeListeners.delete(cb)
+    },
+
+    getAccess(): Access {
+      // O papel guardado só vale para o evento em que foi conferido
+      if (access.eventId && eventId && access.eventId !== eventId) return { role: 'public' }
+      return { role: access.role, email: access.email }
+    },
+
+    async joinWithCode(code) {
+      const { data } = await sb.auth.getSession()
+      if (!data.session) {
+        const r = await sb.auth.signInAnonymously()
+        if (r.error) {
+          if (r.error.status === 0 || !navigator.onLine) throw new Error(OFFLINE_MSG)
+          throw new Error(/anonymous/i.test(r.error.message) ? ANON_DISABLED_MSG : r.error.message)
+        }
+      }
+      const r = await sb.rpc('join_event', { p_code: code })
+      ensure(r)
+      if (!r.data) throw new Error('Código inválido. Confira com o organizador.')
+      // O código leva ao evento dele, mesmo que o aparelho estivesse em outro
+      if (r.data !== eventId) {
+        eventId = r.data as string
+        writeJson(EVENT_KEY, eventId)
+      }
+      await pull()
+      await refreshAccess()
+      if (access.role === 'public') throw new Error('Não foi possível liberar o aparelho. Tente de novo.')
+      void flush()
+    },
+
+    async signIn(email, password) {
+      const r = await sb.auth.signInWithPassword({ email: email.trim(), password })
+      if (r.error) {
+        if (r.error.status === 0 || !navigator.onLine) throw new Error(OFFLINE_MSG)
+        throw new Error(r.error.code === 'invalid_credentials' ? 'E-mail ou senha incorretos' : r.error.message)
+      }
+      // Confere direto no servidor: um erro aqui (ex.: evento ainda não carregado) não pode virar "não é organizador"
+      const role = await sb.rpc('my_access', { p_event: ev() })
+      if (role.error || role.data !== 'organizer') {
+        await sb.auth.signOut()
+        setAccess({ role: 'public' })
+        ensure(role)
+        throw new Error('Este usuário não está cadastrado como organizador. Rode o insert into organizers do passo 5 com este e-mail.')
+      }
+      await refreshAccess()
+      void flush()
+    },
+
+    async signOut() {
+      await sb.auth.signOut().catch(() => undefined)
+      setAccess({ role: 'public' })
+    },
+
+    async generateMarshalCode(revoke) {
+      const r = await sb.rpc('set_marshal_code', { p_event: ev(), p_revoke: revoke })
+      ensure(r)
+      return r.data as string
+    },
+
+    async getMarshalAccessInfo(): Promise<MarshalAccessInfo | null> {
+      const r = await sb.rpc('event_access_info', { p_event: ev() })
+      ensure(r)
+      const row = (r.data as { has_code: boolean; code_updated_at: string | null; marshals: number }[] | null)?.[0]
+      if (!row) return null
+      return {
+        hasCode: row.has_code,
+        codeUpdatedAt: row.code_updated_at ? new Date(row.code_updated_at).getTime() : null,
+        marshals: row.marshals,
+      }
     },
 
     async addCategory(name: string) {

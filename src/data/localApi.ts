@@ -1,8 +1,11 @@
-import type { Api, AppState, EventInfo, Rider, Run, Stage, StartGridItem } from '../types'
+import type { Access, Api, AppState, EventInfo, Rider, Run, Stage, StartGridItem } from '../types'
 import { DEFAULT_CATEGORIES, DEFAULT_STAGES } from '../types'
 import { DEMO_RIDERS, DEMO_STAGES } from './demo'
 
 const KEY = 'mtb-cronometro-v3'
+/** Modo local: o PIN libera o aparelho como organizador (protótipo, sem servidor para conferir). */
+const AUTH_KEY = 'mtb-admin-auth-v1'
+const PIN = (import.meta.env.VITE_ADMIN_PIN as string | undefined) || '1234'
 /** Grade das versões antigas, que ficava separada do estado. */
 const LEGACY_GRID_KEY = 'mtb_start_grid'
 
@@ -99,6 +102,37 @@ export function createLocalApi(): Api {
     async syncNow() {},
     discardPending() {},
     onNotice: () => () => {},
+
+    getAccess(): Access {
+      try {
+        return { role: localStorage.getItem(AUTH_KEY) === 'true' ? 'organizer' : 'public' }
+      } catch {
+        return { role: 'public' }
+      }
+    },
+
+    async joinWithCode(code) {
+      if (code.trim() !== PIN.trim()) throw new Error('PIN incorreto')
+      localStorage.setItem(AUTH_KEY, 'true')
+      emit()
+    },
+
+    async signIn() {
+      throw new Error('O login de organizador precisa do Supabase configurado')
+    },
+
+    async signOut() {
+      localStorage.removeItem(AUTH_KEY)
+      emit()
+    },
+
+    async generateMarshalCode() {
+      throw new Error('Códigos de fiscal precisam do Supabase configurado')
+    },
+
+    async getMarshalAccessInfo() {
+      return null
+    },
 
     async addCategory(name: string) {
       const s = read()
