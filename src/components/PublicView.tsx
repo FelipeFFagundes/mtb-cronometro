@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import type { AppState } from '../types'
+import type { AppState, SyncStatus } from '../types'
 import { DEFAULT_STAGES } from '../types'
 import { LiveTimer } from './LiveTimer'
 import { EnduroLeaderboard } from './EnduroLeaderboard'
@@ -13,9 +13,9 @@ import FormatListNumberedRoundedIcon from '@mui/icons-material/FormatListNumbere
 
 export type PublicTab = 'live' | 'results' | 'grid'
 
-export function PublicView({ state, tab }: { state: AppState; tab: PublicTab }) {
+export function PublicView({ state, tab, sync }: { state: AppState; tab: PublicTab; sync: SyncStatus }) {
   if (tab === 'results') {
-    return <EnduroLeaderboard state={state} title="Resultados" subtitle="Classificação oficial" />
+    return <EnduroLeaderboard state={state} sync={sync} title="Resultados" subtitle="Classificação oficial" />
   }
   if (tab === 'grid') return <PublicStartGrid state={state} />
   return <PublicLive state={state} />

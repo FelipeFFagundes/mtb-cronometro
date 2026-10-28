@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
-import type { AppState } from '../types'
+import type { AppState, SyncStatus } from '../types'
 import { buildEnduroRanking, type EnduroRankRow } from '../lib/ranking'
 import { fmt } from '../lib/time'
+import { rankingStats, statItems } from '../lib/report'
 import { radius, tabular, tokens } from '../theme'
-import { ChipSelect, EmptyState, ListCard, PageHeader, RiderPlate, StickyBar } from './ui'
+import { ChipSelect, EmptyState, ListCard, PageHeader, RiderPlate, StatStrip, StickyBar } from './ui'
+import { SyncStamp } from './SyncBanner'
 import { ExportReport } from './ExportReport'
 import { Box, Button, ButtonBase, Chip, Collapse, Typography } from '@mui/material'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
@@ -14,6 +16,8 @@ interface Props {
   state: AppState
   title?: string
   subtitle?: string
+  /** Mostra quando os dados foram atualizados pela última vez. */
+  sync?: SyncStatus
 }
 
 const podium = [tokens.gold, tokens.silver, tokens.bronze]
@@ -50,7 +54,7 @@ function MainResult({ row, stageId, isFirst }: { row: EnduroRankRow; stageId: st
     return (
       <>
         <Typography sx={{ ...tabular, fontWeight: 900, fontSize: '1.05rem', lineHeight: 1.2 }}>{fmt(row.totalTime)}</Typography>
-        <Typography sx={{ ...tabular, fontSize: '0.75rem', fontWeight: 700, color: isFirst ? 'secondary.main' : 'warning.main' }}>
+        <Typography sx={{ ...tabular, fontSize: '0.75rem', fontWeight: 700, color: isFirst ? 'primary.main' : 'text.secondary' }}>
           {isFirst ? 'Líder' : `+${fmt(row.totalGap)}`}
         </Typography>
       </>
@@ -61,7 +65,7 @@ function MainResult({ row, stageId, isFirst }: { row: EnduroRankRow; stageId: st
     return (
       <>
         <Typography sx={{ ...tabular, fontWeight: 900, fontSize: '1.05rem', lineHeight: 1.2 }}>{fmt(perf.time)}</Typography>
-        <Typography sx={{ ...tabular, fontSize: '0.75rem', fontWeight: 700, color: isFirst ? 'secondary.main' : 'warning.main' }}>
+        <Typography sx={{ ...tabular, fontSize: '0.75rem', fontWeight: 700, color: isFirst ? 'primary.main' : 'text.secondary' }}>
           {isFirst || perf.stageGap == null ? 'Melhor' : `+${fmt(perf.stageGap)}`}
         </Typography>
       </>
@@ -72,7 +76,7 @@ function MainResult({ row, stageId, isFirst }: { row: EnduroRankRow; stageId: st
   return <Typography variant="body2" color="text.secondary">—</Typography>
 }
 
-export function EnduroLeaderboard({ state, title = 'Classificação', subtitle }: Props) {
+export function EnduroLeaderboard({ state, title = 'Classificação', subtitle, sync }: Props) {
   // Baixa o gerador de PDF em segundo plano: o "Exportar" funciona mesmo se o sinal cair no fim da prova
   useEffect(() => {
     const conn = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection
@@ -100,7 +104,16 @@ export function EnduroLeaderboard({ state, title = 'Classificação', subtitle }
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       <PageHeader
         title={title}
-        subtitle={subtitle}
+        subtitle={
+          sync ? (
+            <>
+              {subtitle && `${subtitle} · `}
+              <SyncStamp sync={sync} />
+            </>
+          ) : (
+            subtitle
+          )
+        }
         right={
           <Button variant="outlined" color="inherit" startIcon={<IosShareRoundedIcon />} onClick={() => setExportOpen(true)} sx={{ flexShrink: 0 }}>
             Exportar
@@ -128,6 +141,8 @@ export function EnduroLeaderboard({ state, title = 'Classificação', subtitle }
         )}
       </StickyBar>
 
+      {rows.length > 0 && <StatStrip items={statItems(rankingStats(rows, selectedStageId))} />}
+
       {rows.length === 0 ? (
         <EmptyState icon={<EmojiEventsRoundedIcon />} title="Sem atletas nesta categoria" />
       ) : (
@@ -150,6 +165,8 @@ export function EnduroLeaderboard({ state, title = 'Classificação', subtitle }
                     py: 1.25,
                     minHeight: 64,
                     textAlign: 'left',
+                    // Linha aberta: a mesma linha amarela fina que marca as seleções
+                    boxShadow: open ? `inset 2px 0 0 ${tokens.brand}` : 'none',
                   }}
                 >
                   {ranked ? <Position pos={i + 1} /> : <Box sx={{ width: 32, flexShrink: 0 }} />}
@@ -187,7 +204,7 @@ export function EnduroLeaderboard({ state, title = 'Classificação', subtitle }
                                 {perf.stageRank}º
                               </Typography>
                               <Typography sx={{ ...tabular, fontWeight: 800, width: 76, textAlign: 'right' }}>{fmt(perf.time)}</Typography>
-                              <Typography variant="caption" sx={{ ...tabular, color: 'warning.main', width: 72, textAlign: 'right' }}>
+                              <Typography variant="caption" sx={{ ...tabular, color: 'text.secondary', width: 72, textAlign: 'right' }}>
                                 {perf.stageRank === 1 || perf.stageGap == null ? '' : `+${fmt(perf.stageGap)}`}
                               </Typography>
                             </>

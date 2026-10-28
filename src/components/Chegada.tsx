@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { api } from '../data'
 import type { Act } from '../App'
-import type { AppState } from '../types'
+import type { AppState, SyncStatus } from '../types'
 import { DEFAULT_STAGES } from '../types'
 import { clock, fmt } from '../lib/time'
 import { LiveTimer } from './LiveTimer'
 import { radius, tabular, tokens } from '../theme'
 import { BottomSheet, ChipSelect, ConfirmDialog, EmptyState, Kbd, ListCard, PageHeader, RiderPlate, Section, StickyBar } from './ui'
+import { SyncStamp } from './SyncBanner'
 import { isTyping, overlayOpen, useKeydown } from '../hooks/useKeyboard'
 import { Box, Button, ButtonBase, Chip, IconButton, Typography } from '@mui/material'
 import SportsScoreRoundedIcon from '@mui/icons-material/SportsScoreRounded'
@@ -18,7 +19,7 @@ import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 interface Props {
   state: AppState
   act: Act
-  online: boolean
+  sync: SyncStatus
 }
 
 interface RunActionTarget {
@@ -48,7 +49,8 @@ interface DnfTarget {
   stageName?: string
 }
 
-export function Chegada({ state, act, online }: Props) {
+export function Chegada({ state, act, sync }: Props) {
+  const online = sync.online
   const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget | null>(null)
   const [dnfTarget, setDnfTarget] = useState<DnfTarget | null>(null)
   const [runActionTarget, setRunActionTarget] = useState<RunActionTarget | null>(null)
@@ -122,7 +124,19 @@ export function Chegada({ state, act, online }: Props) {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <PageHeader title="Chegada" subtitle={track.length > 0 ? 'Toque no piloto quando ele cruzar a linha' : undefined} />
+      <PageHeader
+        title="Chegada"
+        subtitle={
+          <>
+            <SyncStamp sync={sync} />
+            {track.length > 0 && (
+              <Box component="span" sx={{ display: 'block' }}>
+                Toque no piloto quando ele cruzar a linha
+              </Box>
+            )}
+          </>
+        }
+      />
 
       {stages.length > 1 && (
         <StickyBar>

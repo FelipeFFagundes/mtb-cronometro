@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf'
 import { autoTable } from 'jspdf-autotable'
-import { formatGeneratedAt, loadLogo, type Report } from './report'
+import { formatGeneratedAt, loadLogo, statItems, type Report } from './report'
 
 /*
  * Relatório em PDF (A4), carregado sob demanda para não pesar na abertura do app.
@@ -50,7 +50,27 @@ export async function buildReportPdf(report: Report): Promise<Blob> {
   doc.setTextColor(161, 161, 170)
   doc.text(`Gerado em ${formatGeneratedAt(report.generatedAt)}`, textX, 25.5)
 
-  let y = bandH + 10
+  // Números do recorte: quatro células iguais logo abaixo do cabeçalho
+  const statsY = bandH + 6
+  const statsH = 14
+  const cellGap = 3
+  const items = statItems(report.stats)
+  const cellW = (pageW - MARGIN * 2 - cellGap * (items.length - 1)) / items.length
+  items.forEach((it, i) => {
+    const x = MARGIN + i * (cellW + cellGap)
+    doc.setFillColor(244, 244, 245)
+    doc.rect(x, statsY, cellW, statsH, 'F')
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7.5)
+    doc.setTextColor(...GRAY)
+    doc.text(it.label.toUpperCase(), x + 3, statsY + 4.8)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(14)
+    doc.setTextColor(...INK)
+    doc.text(String(it.value), x + 3, statsY + 11.5)
+  })
+
+  let y = statsY + statsH + 10
   const head = ['Pos', 'Nº', 'Atleta', ...report.columns, report.overall ? 'Total' : 'Tempo', 'Dif.']
   const timeCols = report.columns.length + 2 // especiais + total + dif.
   const firstTime = 3

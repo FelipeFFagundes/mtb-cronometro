@@ -125,6 +125,8 @@ export interface SyncStatus {
   syncing: boolean
   /** Quantidade de ações aguardando envio. */
   pending: number
+  /** Último contato bem-sucedido com o servidor (horário do servidor, epoch ms). */
+  lastOk?: number
 }
 
 /** Ação registrada no aparelho que ainda não foi confirmada pelo servidor. */

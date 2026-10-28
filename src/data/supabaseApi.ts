@@ -218,6 +218,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
   let clockOffset = readJson<number>(OFFSET_KEY, 0)
   let online = typeof navigator === 'undefined' ? true : navigator.onLine
   let syncing = false
+  let lastOk: number | undefined
   let pulling = false
   let flushing = false
 
@@ -376,6 +377,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       }
       writeJson(CACHE_KEY, server)
       online = true
+      lastOk = nowSrv()
       emit()
       void refreshAccess()
       return true
@@ -443,6 +445,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
           removeOp(op.id)
           sent = true
           online = true
+          lastOk = nowSrv()
         } else if (outcome === 'network') {
           online = false
           break
@@ -562,7 +565,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     getClockOffset: () => clockOffset,
 
     getSync(): SyncStatus {
-      return { online, syncing, pending: queue.length }
+      return { online, syncing, pending: queue.length, lastOk }
     },
 
     getPending(): PendingOp[] {
