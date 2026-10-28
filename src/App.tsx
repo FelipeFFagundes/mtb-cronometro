@@ -516,12 +516,12 @@ export default function App() {
         ) : route.code && route.code !== eventCode ? (
           <PageSkeleton />
         ) : !isAdmin ? (
-          <PublicView state={state} tab={publicTab} />
+          <PublicView state={state} tab={publicTab} sync={sync} />
         ) : (
           <>
-            {activeTab === 'largada' && <Largada state={state} act={act} online={sync.online} />}
-            {activeTab === 'chegada' && <Chegada state={state} act={act} online={sync.online} />}
-            {activeTab === 'ranking' && <Ranking state={state} />}
+            {activeTab === 'largada' && <Largada state={state} act={act} sync={sync} />}
+            {activeTab === 'chegada' && <Chegada state={state} act={act} sync={sync} />}
+            {activeTab === 'ranking' && <Ranking state={state} sync={sync} />}
             {activeTab === 'pilotos' && <Pilotos state={state} act={act} />}
           </>
         )}

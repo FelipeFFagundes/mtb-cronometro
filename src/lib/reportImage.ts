@@ -1,5 +1,5 @@
 import { tokens } from '../theme'
-import { formatGeneratedAt, loadLogo, type Report } from './report'
+import { formatGeneratedAt, loadLogo, statItems, type Report } from './report'
 
 /*
  * Relatório em imagem (PNG), no visual do app, para mandar no WhatsApp ou postar.
@@ -9,6 +9,8 @@ import { formatGeneratedAt, loadLogo, type Report } from './report'
 const W = 1080
 const PAD = 48
 const HEADER_H = 220
+/** Faixa com inscritos, largaram, chegaram e DNF, logo abaixo do cabeçalho. */
+const STATS_H = 132
 const ROW_H = 84
 const SECTION_HEAD = 84
 const SECTION_GAP = 28
@@ -32,7 +34,7 @@ export async function buildReportImage(report: Report): Promise<Blob> {
   const logo = await loadLogo(72)
 
   const rows = report.sections.reduce((n, s) => n + s.rows.length, 0)
-  const H = HEADER_H + report.sections.length * (SECTION_HEAD + SECTION_GAP) + rows * ROW_H + FOOTER_H
+  const H = HEADER_H + STATS_H + report.sections.length * (SECTION_HEAD + SECTION_GAP) + rows * ROW_H + FOOTER_H
   const scale = Math.min(1, Math.sqrt(MAX_PIXELS / (W * H)))
 
   const canvas = document.createElement('canvas')
@@ -58,11 +60,32 @@ export async function buildReportImage(report: Report): Promise<Blob> {
   ctx.fillText(ellipsize(ctx, report.scope.toUpperCase(), W - textX - PAD), textX, 140)
   ctx.fillStyle = tokens.muted
   ctx.font = `400 22px ${BODY}`
-  ctx.fillText(formatGeneratedAt(report.generatedAt), textX, 176)
+  ctx.fillText(`Gerado em ${formatGeneratedAt(report.generatedAt)}`, textX, 176)
   ctx.fillStyle = tokens.brand
   ctx.fillRect(0, HEADER_H - 8, W, 8)
 
-  let y = HEADER_H + SECTION_GAP
+  // Números do recorte: um bloco dividido em células iguais por linhas finas
+  const items = statItems(report.stats)
+  const statsTop = HEADER_H + SECTION_GAP
+  const statsBoxH = STATS_H - SECTION_GAP
+  const cellW = (W - PAD * 2) / items.length
+  ctx.fillStyle = tokens.surface
+  ctx.fillRect(PAD, statsTop, W - PAD * 2, statsBoxH)
+  items.forEach((it, i) => {
+    const x = PAD + i * cellW
+    if (i > 0) {
+      ctx.fillStyle = tokens.raised
+      ctx.fillRect(x, statsTop + 16, 2, statsBoxH - 32)
+    }
+    ctx.fillStyle = tokens.muted
+    ctx.font = `600 22px ${DISPLAY}`
+    ctx.fillText(it.label.toUpperCase(), x + 24, statsTop + 34)
+    ctx.fillStyle = tokens.text
+    ctx.font = `800 48px ${DISPLAY}`
+    ctx.fillText(String(it.value), x + 24, statsTop + 84)
+  })
+
+  let y = HEADER_H + STATS_H + SECTION_GAP
   const right = W - PAD
   const totalX = right - 20 // borda direita do total
 
@@ -126,7 +149,8 @@ export async function buildReportImage(report: Report): Promise<Blob> {
       ctx.font = `800 36px ${DISPLAY}`
       ctx.fillText(row.total, totalX, top + (row.gap ? 40 : 52))
       if (row.gap) {
-        ctx.fillStyle = row.gap.startsWith('+') ? tokens.warn : tokens.muted
+        // A diferença já tem sinal; a cor fica neutra
+        ctx.fillStyle = tokens.muted
         ctx.font = `600 24px ${DISPLAY}`
         ctx.fillText(row.gap, totalX, top + 68)
       }

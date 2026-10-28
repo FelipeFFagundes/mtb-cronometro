@@ -5,9 +5,10 @@ import type { EventInfo, NewEvent } from '../types'
 import { formatEventDate, sortEvents, statusLabel, todayIso } from '../lib/events'
 import { eventLink } from '../hooks/useRoute'
 import { tabular, tokens } from '../theme'
-import { BottomSheet, ConfirmDialog, EmptyState, PageHeader, Section } from './ui'
+import { BottomSheet, ConfirmDialog, EmptyState, FilterBar, PageHeader } from './ui'
+import { athleteKey } from '../lib/athletes'
 import { QrCode } from './QrCode'
-import { Alert, Box, Button, Card, Chip, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Card, Chip, Tab, Tabs, TextField, Typography } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import QrCode2RoundedIcon from '@mui/icons-material/QrCode2Rounded'
@@ -28,6 +29,15 @@ interface Props {
 
 type Draft = { id?: string; name: string; startsOn: string; location: string; status: EventInfo['status']; copyFrom: string }
 
+/** Abas da lista, na ordem em que aparecem. */
+const STATUS_TABS: EventInfo['status'][] = ['aberto', 'rascunho', 'encerrado']
+
+const emptyText: Record<EventInfo['status'], string> = {
+  aberto: 'Nenhum evento aberto.',
+  rascunho: 'Nenhum rascunho.',
+  encerrado: 'Nenhum evento encerrado.',
+}
+
 const statusColor: Record<EventInfo['status'], 'default' | 'success' | 'warning'> = {
   rascunho: 'warning',
   aberto: 'success',
@@ -43,6 +53,18 @@ export function EventsAdmin({ events, act, onOpen }: Props) {
   const [deleteStats, setDeleteStats] = useState<{ riders: number; runs: number } | null>(null)
   const [typedName, setTypedName] = useState('')
   const { open, closed } = sortEvents(events)
+  const sorted = [...open, ...closed]
+  const byStatus = Object.fromEntries(STATUS_TABS.map((s) => [s, sorted.filter((e) => e.status === s)])) as Record<
+    EventInfo['status'],
+    EventInfo[]
+  >
+  // Abre na aba que tem eventos, começando pelos abertos
+  const [statusTab, setStatusTab] = useState<EventInfo['status']>(
+    () => STATUS_TABS.find((s) => events.some((e) => e.status === s)) ?? 'aberto',
+  )
+  const [search, setSearch] = useState('')
+  const q = athleteKey(search)
+  const visible = byStatus[statusTab].filter((e) => !q || athleteKey(`${e.name} ${e.location ?? ''}`).includes(q))
 
   const sameName = (a: string, b: string) => a.trim().toLocaleLowerCase('pt-BR') === b.trim().toLocaleLowerCase('pt-BR')
 
@@ -76,11 +98,17 @@ export function EventsAdmin({ events, act, onOpen }: Props) {
         () => api.updateEvent(d.id!, { name: d.name, startsOn: d.startsOn, location: d.location, status: d.status }),
         `Evento "${d.name.trim()}" salvo`,
       )
-      if (ok) setDraft(null)
+      if (ok) {
+        setDraft(null)
+        setStatusTab(d.status)
+      }
     } else {
       const input: NewEvent = { name: d.name, startsOn: d.startsOn, location: d.location, copyFrom: d.copyFrom || undefined }
       const ok = await act(() => api.createEvent(input), `Evento "${d.name.trim()}" criado`)
-      if (ok) setDraft(null)
+      if (ok) {
+        setDraft(null)
+        setStatusTab('aberto')
+      }
     }
   }
 
@@ -145,16 +173,36 @@ export function EventsAdmin({ events, act, onOpen }: Props) {
         }
       />
 
-      {events.length === 0 && <EmptyState icon={<EventRoundedIcon />} title="Nenhum evento" text="Crie o primeiro evento para começar." />}
-      {open.length > 0 && (
-        <Section title="Abertos e rascunhos" count={open.length}>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>{open.map(card)}</Box>
-        </Section>
-      )}
-      {closed.length > 0 && (
-        <Section title="Encerrados" count={closed.length}>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>{closed.map(card)}</Box>
-        </Section>
+      {events.length === 0 ? (
+        <EmptyState icon={<EventRoundedIcon />} title="Nenhum evento" text="Crie o primeiro evento para começar." />
+      ) : (
+        <>
+          <Tabs
+            value={statusTab}
+            onChange={(_, v: EventInfo['status']) => setStatusTab(v)}
+            variant="fullWidth"
+            sx={{ mx: -2, px: 2, borderBottom: `1px solid ${tokens.line}`, '& .MuiTab-root': { px: 1, minWidth: 0 } }}
+          >
+            {STATUS_TABS.map((s) => (
+              <Tab key={s} value={s} label={`${statusLabel[s]} · ${byStatus[s].length}`} />
+            ))}
+          </Tabs>
+          {events.length > 5 && (
+            <FilterBar
+              placeholder="Buscar nome ou local"
+              value={search}
+              onChange={setSearch}
+              count={`${visible.length} ${visible.length === 1 ? 'evento' : 'eventos'}`}
+            />
+          )}
+          {visible.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+              {q ? 'Nenhum evento encontrado.' : emptyText[statusTab]}
+            </Typography>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>{visible.map(card)}</Box>
+          )}
+        </>
       )}
 
       <Typography variant="caption" color="text.secondary">

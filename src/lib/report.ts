@@ -23,11 +23,47 @@ export interface ReportSection {
   rows: ReportRow[]
 }
 
+/** Números do recorte (geral ou uma especial) para o topo do relatório e da classificação. */
+export interface RankingStats {
+  overall: boolean
+  athletes: number
+  started: number
+  /** Geral: completou todas as especiais sem DNF. Especial: chegou nela. */
+  finished: number
+  dnf: number
+}
+
+export function rankingStats(rows: EnduroRankRow[], stageId: string): RankingStats {
+  const overall = stageId === 'all'
+  let started = 0
+  let finished = 0
+  let dnf = 0
+  for (const row of rows) {
+    const perfs = overall ? Object.values(row.stagePerformances) : [row.stagePerformances[stageId]]
+    if (perfs.some((p) => p && p.status !== 'none')) started++
+    if (overall ? row.hasDnf : perfs[0]?.status === 'dnf') dnf++
+    else if (overall ? row.isCompletedAll : perfs[0]?.status === 'done') finished++
+  }
+  return { overall, athletes: rows.length, started, finished, dnf }
+}
+
+/** Rótulos curtos dos números, na ordem em que aparecem. */
+export function statItems(s: RankingStats): { label: string; value: number }[] {
+  return [
+    { label: 'Inscritos', value: s.athletes },
+    { label: 'Largaram', value: s.started },
+    // Na geral, "chegou" só conta quem fez todas as especiais
+    { label: s.overall ? 'Concluíram' : 'Chegaram', value: s.finished },
+    { label: 'DNF', value: s.dnf },
+  ]
+}
+
 export interface Report {
   title: string
   /** Ex.: "Classificação geral" ou "E2 - Erechim". */
   scope: string
   generatedAt: Date
+  stats: RankingStats
   /** Cabeçalhos das colunas de tempo (antes do total). */
   columns: string[]
   /** Geral: há colunas por especial + total. */
@@ -87,9 +123,11 @@ export function buildReport(state: AppState, opts: { title: string; stageId: str
   const cats = opts.category === 'Todas' ? allCats : [opts.category]
 
   const sections: ReportSection[] = []
+  const allRows: EnduroRankRow[] = []
   for (const category of cats) {
     const { rows } = buildEnduroRanking(state, category, opts.stageId)
     if (rows.length === 0) continue
+    allRows.push(...rows)
     let pos = 0
     sections.push({
       category,
@@ -105,6 +143,7 @@ export function buildReport(state: AppState, opts: { title: string; stageId: str
     title: opts.title.trim() || 'Resultado',
     scope: overall ? 'Classificação geral' : (stage?.name ?? 'Especial'),
     generatedAt: new Date(),
+    stats: rankingStats(allRows, opts.stageId),
     columns: overall ? stages.map(stageLabel) : [],
     overall,
     sections,

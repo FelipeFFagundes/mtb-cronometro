@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { api } from '../data'
 import type { PendingOp, SyncStatus } from '../types'
 import { clock } from '../lib/time'
+import { useNow } from '../hooks/useNow'
 import { radius, tabular, tokens } from '../theme'
 import { BottomSheet } from './ui'
 import { Box, Button, IconButton, Typography } from '@mui/material'
@@ -12,6 +13,36 @@ import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 interface Props {
   sync: SyncStatus
   pending: PendingOp[]
+}
+
+/** "há 8 s", "há 3 min". */
+function ago(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  if (s < 5) return 'agora'
+  if (s < 60) return `há ${s} s`
+  const m = Math.round(s / 60)
+  return m < 60 ? `há ${m} min` : `há ${Math.round(m / 60)} h`
+}
+
+/**
+ * Quando foi o último contato com o servidor ("Sincronizado há 8 s"). Online, o app busca
+ * os dados a cada 15 s, então um número alto aqui avisa que algo travou antes do indicador.
+ */
+export function SyncStamp({ sync }: { sync: SyncStatus }) {
+  const now = useNow(1000)
+  if (api.mode !== 'supabase') return <>Salvo neste aparelho</>
+  const last = sync.lastOk != null ? ` · último contato ${ago(now - sync.lastOk)}` : ''
+  if (!sync.online) {
+    return (
+      <Box component="span" sx={{ color: 'warning.main' }}>
+        Offline{sync.pending > 0 ? ` · ${sync.pending} ${sync.pending === 1 ? 'guardado' : 'guardados'}` : ''}
+        {last}
+      </Box>
+    )
+  }
+  if (sync.syncing || sync.pending > 0) return <>Enviando {sync.pending > 0 ? `${sync.pending} ` : ''}…</>
+  if (sync.lastOk == null) return <>Conectando…</>
+  return <>Sincronizado {ago(now - sync.lastOk)}</>
 }
 
 /** Faixa que aparece quando está sem conexão ou há ações aguardando envio. */

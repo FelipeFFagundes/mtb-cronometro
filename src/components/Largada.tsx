@@ -1,41 +1,40 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { api } from '../data'
 import type { Act } from '../App'
-import type { AppState, Rider, Run, Stage } from '../types'
+import type { AppState, Rider, Run, Stage, SyncStatus } from '../types'
 export type { StartGridItem } from '../types'
 import { DEFAULT_STAGES } from '../types'
-import { clock } from '../lib/time'
+import { clock, fmt } from '../lib/time'
 import { gridForStage } from '../lib/grid'
 import { athleteKey } from '../lib/athletes'
 import { playCountdownTick, playStartGo, unlockAudio } from '../lib/sound'
 import { useNow } from '../hooks/useNow'
 import { BOTTOMNAV_H, radius, tabular, tokens } from '../theme'
-import { ChipSelect, ConfirmDialog, EmptyState, Kbd, ListCard, PageHeader, RiderPlate, Section, StickyBar } from './ui'
+import { ChipSelect, ConfirmDialog, CountCards, EmptyState, FilterBar, Kbd, ListCard, PageHeader, RiderPlate, Section, StickyBar } from './ui'
+import { SyncStamp } from './SyncBanner'
+import { LiveTimer } from './LiveTimer'
 import { useBackClose } from '../hooks/useBackClose'
 import { isTyping, overlayOpen, useKeydown } from '../hooks/useKeyboard'
-import {
-  Box,
-  ButtonBase,
-  Button,
-  Chip,
-  Container,
-  Dialog,
-  IconButton,
-  InputAdornment,
-  TextField,
-  Typography,
-} from '@mui/material'
+import { Box, ButtonBase, Button, Chip, Container, Dialog, IconButton, Typography } from '@mui/material'
 import UndoRoundedIcon from '@mui/icons-material/UndoRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
-import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
 import TrafficRoundedIcon from '@mui/icons-material/TrafficRounded'
 
 interface Props {
   state: AppState
   act: Act
-  online: boolean
+  sync: SyncStatus
+}
+
+/** O que a lista mostra: a fila ou as descidas da especial em cada situação. */
+type View = 'fila' | 'track' | 'done' | 'dnf'
+
+const viewEmpty: Record<Exclude<View, 'fila'>, string> = {
+  track: 'Ninguém na pista nesta especial.',
+  done: 'Ninguém chegou ainda nesta especial.',
+  dnf: 'Nenhum DNF nesta especial.',
 }
 
 const noCategory = (r: Rider) => !r.cat || r.cat === 'Sem Categoria' || r.cat.trim() === ''
@@ -49,11 +48,13 @@ function ScheduleHint({ epoch }: { epoch: number }) {
   return <Box component="span" sx={{ color: 'warning.main' }}>atrasado {-diffMin} min</Box>
 }
 
-export function Largada({ state, act, online }: Props) {
+export function Largada({ state, act, sync }: Props) {
+  const online = sync.online
   const stages = state.stages && state.stages.length > 0 ? state.stages : DEFAULT_STAGES
   const [activeStageId, setActiveStageId] = useState<string>(() => stages[0]?.id || 'stage-1')
   const currentStage: Stage = stages.find((s) => s.id === activeStageId) || stages[0]
 
+  const [view, setView] = useState<View>('fila')
   const [selectedNum, setSelectedNum] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
@@ -191,15 +192,65 @@ export function Largada({ state, act, online }: Props) {
     }
   })
 
-  const onTrackCount = state.runs.filter((r) => r.status === 'track').length
   const selectedGrid = selected ? gridMap.get(selected.num) : undefined
+
+  // Descidas desta especial, por situação (os cartões de contagem e as listas fora da fila)
+  const stageRuns = state.runs.filter((run) => (run.stageId || stages[0]?.id) === currentStage.id)
+  const byStatus = (status: Run['status']) => stageRuns.filter((run) => run.status === status)
+  const viewRuns =
+    view === 'track'
+      ? byStatus('track').sort((a, b) => a.start - b.start)
+      : view === 'fila'
+        ? []
+        : byStatus(view).sort((a, b) => (b.end ?? b.start) - (a.end ?? a.start))
+
+  const runRow = (run: Run, showStage: boolean) => {
+    const r = state.riders.find((x) => x.num === run.num)
+    const st = stages.find((s) => s.id === run.stageId)
+    const isTrack = run.status === 'track'
+    return (
+      <Box key={run.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1, minHeight: 60 }}>
+        <RiderPlate num={run.num} size="sm" tone={isTrack ? 'start' : 'muted'} />
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography noWrap sx={{ fontWeight: 700 }}>
+            {r?.name ?? `Piloto #${run.num}`}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+            largou{' '}
+            <Box component="span" sx={tabular}>
+              {clock(run.start)}
+            </Box>
+            {showStage && ` · ${st?.name ?? 'Especial'}`}
+          </Typography>
+        </Box>
+        {isTrack ? (
+          <>
+            {!showStage && (
+              <Typography sx={{ ...tabular, fontWeight: 800 }}>
+                <LiveTimer start={run.start} />
+              </Typography>
+            )}
+            <IconButton aria-label={`Desfazer largada de ${r?.name ?? run.num}`} onClick={() => setUndoTarget(run)} sx={{ color: 'text.secondary' }}>
+              <UndoRoundedIcon />
+            </IconButton>
+          </>
+        ) : run.status === 'done' && run.end != null && !showStage ? (
+          <Typography sx={{ ...tabular, fontWeight: 800 }}>{fmt(run.end - run.start)}</Typography>
+        ) : (
+          // Mesmas cores da Chegada: DNF vermelho cheio, chegada em verde (o texto continua dizendo qual é)
+          run.status === 'dnf' ? (
+            <Chip label="DNF" size="small" color="error" />
+          ) : (
+            <Chip label="Chegou" size="small" color="secondary" variant="outlined" />
+          )
+        )}
+      </Box>
+    )
+  }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <PageHeader
-        title="Largada"
-        subtitle={`${availableRiders.length} na fila · ${onTrackCount} na pista`}
-      />
+      <PageHeader title="Largada" subtitle={<SyncStamp sync={sync} />} />
 
       {stages.length > 1 && (
         <StickyBar>
@@ -215,7 +266,27 @@ export function Largada({ state, act, online }: Props) {
         </StickyBar>
       )}
 
-      {availableRiders.length === 0 ? (
+      <CountCards
+        ariaLabel={`Pilotos na ${currentStage.name}`}
+        value={view}
+        onChange={(v) => setView(v as View)}
+        options={[
+          { value: 'fila', label: 'Na fila', count: availableRiders.length },
+          { value: 'track', label: 'Na pista', count: byStatus('track').length },
+          { value: 'done', label: 'Chegaram', count: byStatus('done').length },
+          { value: 'dnf', label: 'DNF', count: byStatus('dnf').length },
+        ]}
+      />
+
+      {view !== 'fila' ? (
+        viewRuns.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+            {viewEmpty[view]}
+          </Typography>
+        ) : (
+          <ListCard>{viewRuns.map((run) => runRow(run, false))}</ListCard>
+        )
+      ) : availableRiders.length === 0 ? (
         <EmptyState
           icon={<TrafficRoundedIcon />}
           title={state.riders.length === 0 ? 'Nenhum piloto cadastrado' : 'Fila vazia'}
@@ -264,15 +335,15 @@ export function Largada({ state, act, online }: Props) {
             </Box>
           )}
 
-          <Section title="Fila" count={availableRiders.length}>
+          <Section title="Fila">
             {availableRiders.length > 5 && (
-              <TextField
-                fullWidth
-                size="small"
+              <FilterBar
                 placeholder="Buscar placa ou nome"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={setSearch}
+                count={q ? `${visibleQueue.length} de ${availableRiders.length}` : `${availableRiders.length} na fila`}
                 inputRef={searchRef}
+                shortcut="/"
                 onKeyDown={(e) => {
                   // Digitar a placa e Enter: larga o primeiro da busca
                   if (e.key === 'Enter' && visibleQueue[0]) {
@@ -284,23 +355,9 @@ export function Largada({ state, act, online }: Props) {
                     void startCountdown(r)
                   }
                 }}
-                sx={{ mb: 1 }}
-                slotProps={{
-                  input: {
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <SearchRoundedIcon />
-                      </InputAdornment>
-                    ),
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <Kbd>/</Kbd>
-                      </InputAdornment>
-                    ),
-                  },
-                }}
               />
             )}
+            <Box sx={{ mt: availableRiders.length > 5 ? 1 : 0 }} />
             <ListCard>
               {visibleQueue.length === 0 && (
                 <Typography color="text.secondary" sx={{ p: 2, textAlign: 'center' }}>
@@ -351,46 +408,18 @@ export function Largada({ state, act, online }: Props) {
         </>
       )}
 
-      {/* ÚLTIMAS LARGADAS */}
-      <Section title="Últimas largadas">
-        {recent.length === 0 ? (
-          <Typography variant="body2" color="text.secondary">
-            Nenhuma largada ainda.
-          </Typography>
-        ) : (
-          <ListCard>
-            {recent.map((run) => {
-              const r = state.riders.find((x) => x.num === run.num)
-              const st = stages.find((s) => s.id === run.stageId)
-              const isTrack = run.status === 'track'
-              return (
-                <Box key={run.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1, minHeight: 60 }}>
-                  <RiderPlate num={run.num} size="sm" tone={isTrack ? 'start' : 'muted'} />
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography noWrap sx={{ fontWeight: 700 }}>
-                      {r?.name ?? `Piloto #${run.num}`}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
-                      <Box component="span" sx={tabular}>
-                        {clock(run.start)}
-                      </Box>
-                      {' · '}
-                      {st?.name ?? 'Especial'}
-                    </Typography>
-                  </Box>
-                  {isTrack ? (
-                    <IconButton aria-label={`Desfazer largada de ${r?.name ?? run.num}`} onClick={() => setUndoTarget(run)} sx={{ color: 'text.secondary' }}>
-                      <UndoRoundedIcon />
-                    </IconButton>
-                  ) : (
-                    <Chip label={run.status === 'dnf' ? 'DNF' : 'Chegou'} size="small" variant="outlined" />
-                  )}
-                </Box>
-              )
-            })}
-          </ListCard>
-        )}
-      </Section>
+      {/* ÚLTIMAS LARGADAS (todas as especiais) */}
+      {view === 'fila' && (
+        <Section title="Últimas largadas">
+          {recent.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              Nenhuma largada ainda.
+            </Typography>
+          ) : (
+            <ListCard>{recent.map((run) => runRow(run, true))}</ListCard>
+          )}
+        </Section>
+      )}
 
       {/* BARRA DE AÇÃO FIXA NA ZONA DO POLEGAR */}
       {selected && (
