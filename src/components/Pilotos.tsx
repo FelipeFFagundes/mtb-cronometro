@@ -4,7 +4,7 @@ import type { Act } from '../App'
 import type { AppState, Rider, StartGridItem } from '../types'
 export type { StartGridItem } from '../types'
 import { BOTTOMNAV_H, tokens } from '../theme'
-import { BottomSheet, ChipSelect, ConfirmDialog, EmptyState, ListCard, PageHeader, RiderPlate, Section } from './ui'
+import { BottomSheet, ChipSelect, ConfirmDialog, CountCards, EmptyState, FilterBar, ListCard, PageHeader, RiderPlate, Section } from './ui'
 import { StartGridList } from './StartGridList'
 import { ImportCsv } from './ImportCsv'
 import { MarshalAccess } from './MarshalAccess'
@@ -19,7 +19,6 @@ import {
   Chip,
   Fab,
   IconButton,
-  InputAdornment,
   Tab,
   Tabs,
   TextField,
@@ -32,7 +31,6 @@ import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded'
 import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded'
 import ShuffleRoundedIcon from '@mui/icons-material/ShuffleRounded'
-import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import PeopleAltRoundedIcon from '@mui/icons-material/PeopleAltRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
@@ -45,6 +43,9 @@ interface Props {
 }
 
 type SubTab = 'atletas' | 'categorias' | 'especiais' | 'grade' | 'acesso'
+
+/** Cartões de contagem da aba Atletas. */
+type RiderFilter = 'todos' | 'largaram' | 'faltam' | 'semcat'
 
 const noCategory = (cat: string) => !cat || cat === 'Sem Categoria'
 
@@ -96,6 +97,7 @@ export function Pilotos({ state, act }: Props) {
   const [team, setTeam] = useState('')
   const [newCat, setNewCat] = useState('')
   const [search, setSearch] = useState('')
+  const [riderFilter, setRiderFilter] = useState<RiderFilter>('todos')
   const [addOpen, setAddOpen] = useState(false)
   const numInputRef = useRef<HTMLInputElement>(null)
 
@@ -441,18 +443,27 @@ export function Pilotos({ state, act }: Props) {
   }
 
   const riders = state.riders.slice().sort((a, b) => Number(a.num) - Number(b.num))
+  // Cartões de contagem: quem já largou em alguma especial e quem está sem categoria
+  const startedNums = new Set(state.runs.map((r) => r.num))
+  const riderGroups: Record<RiderFilter, Rider[]> = {
+    todos: riders,
+    largaram: riders.filter((r) => startedNums.has(r.num)),
+    faltam: riders.filter((r) => !startedNums.has(r.num)),
+    semcat: riders.filter((r) => noCategory(r.cat)),
+  }
   // Busca sem diferenciar acentos ("pescoco" acha "Sem pescoço"), também por equipe
   const q = athleteKey(search)
+  const filteredRiders = riderGroups[riderFilter]
   const visibleRiders = q
-    ? riders.filter(
+    ? filteredRiders.filter(
         (r) =>
           r.num.startsWith(q) ||
           athleteKey(r.name).includes(q) ||
           athleteKey(r.cat).includes(q) ||
           athleteKey(r.team ?? '').includes(q),
       )
-    : riders
-  const withoutCategory = riders.filter((r) => noCategory(r.cat)).length
+    : filteredRiders
+  const withoutCategory = riderGroups.semcat.length
 
   const stageGrid = gridItems.filter((i) => (i.stageId || stages[0]?.id) === activeGridStageId)
 
@@ -500,29 +511,30 @@ export function Pilotos({ state, act }: Props) {
       {/* ============ ATLETAS ============ */}
       {tab === 'atletas' && (
         <>
-          {withoutCategory > 0 && (
-            <Chip
-              color="error"
-              icon={<WarningAmberRoundedIcon />}
-              label={`${withoutCategory} ${withoutCategory === 1 ? 'atleta sem categoria não pode' : 'atletas sem categoria não podem'} largar`}
-              sx={{ alignSelf: 'flex-start' }}
+          {riders.length > 0 && (
+            <CountCards
+              ariaLabel="Filtrar atletas"
+              value={riderFilter}
+              onChange={(v) => setRiderFilter(v as RiderFilter)}
+              options={[
+                { value: 'todos', label: 'Inscritos', count: riders.length },
+                { value: 'largaram', label: 'Largaram', count: riderGroups.largaram.length },
+                { value: 'faltam', label: 'Não largaram', count: riderGroups.faltam.length },
+                { value: 'semcat', label: 'Sem categoria', count: withoutCategory, alert: true },
+              ]}
             />
           )}
-          <TextField
-            fullWidth
-            size="small"
-            placeholder="Buscar placa, nome ou categoria"
+          {withoutCategory > 0 && riderFilter === 'semcat' && (
+            <Typography variant="body2" color="error.main" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <WarningAmberRoundedIcon fontSize="small" />
+              Sem categoria não pode largar. Toque no atleta para definir.
+            </Typography>
+          )}
+          <FilterBar
+            placeholder="Buscar placa, nome ou equipe"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchRoundedIcon />
-                  </InputAdornment>
-                ),
-              },
-            }}
+            onChange={setSearch}
+            count={`${visibleRiders.length} ${visibleRiders.length === 1 ? 'atleta' : 'atletas'}`}
           />
           {riders.length === 0 ? (
             <EmptyState icon={<PeopleAltRoundedIcon />} title="Nenhum atleta" text="Toque em “Novo atleta” ou importe uma planilha." />

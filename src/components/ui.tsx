@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react'
-import { Box, Button, Card, Chip, Dialog, IconButton, Skeleton, SwipeableDrawer, Typography } from '@mui/material'
+import type { KeyboardEvent, ReactNode, Ref } from 'react'
+import { Box, Button, ButtonBase, Card, Chip, Dialog, IconButton, InputAdornment, Skeleton, SwipeableDrawer, TextField, Typography } from '@mui/material'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import { TOPBAR_H, look, radius, tabular, tokens } from '../theme'
 import { useBackClose } from '../hooks/useBackClose'
 
@@ -98,6 +99,147 @@ export function ChipSelect({
         )
       })}
     </Box>
+  )
+}
+
+export interface CountOption {
+  value: string
+  label: string
+  count: number
+  /** Contagem acima de zero é um problema (ex.: atletas sem categoria): o número fica vermelho. */
+  alert?: boolean
+}
+
+/**
+ * Cartões de contagem que filtram a lista logo abaixo. São pares (cada um mostra um estado da
+ * mesma lista), então têm o mesmo tamanho; o selecionado ganha borda e fundo amarelos.
+ */
+export function CountCards({
+  options,
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  options: CountOption[]
+  value: string
+  onChange: (value: string) => void
+  ariaLabel: string
+}) {
+  return (
+    <Box
+      role="radiogroup"
+      aria-label={ariaLabel}
+      sx={{ display: 'grid', gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))`, gap: 1 }}
+    >
+      {options.map((o) => {
+        const selected = o.value === value
+        return (
+          <ButtonBase
+            key={o.value}
+            role="radio"
+            aria-checked={selected}
+            onClick={() => onChange(o.value)}
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: 0.5,
+              minHeight: 64,
+              px: 1.25,
+              py: 1,
+              textAlign: 'left',
+              borderRadius: radius.md,
+              border: `1.5px solid ${selected ? tokens.brand : tokens.line}`,
+              bgcolor: selected ? 'rgba(255, 214, 10, 0.08)' : 'background.paper',
+              transition: 'border-color 0.15s, background-color 0.15s',
+            }}
+          >
+            <Typography variant="caption" sx={{ color: selected ? 'text.primary' : 'text.secondary', lineHeight: 1.2 }}>
+              {o.label}
+            </Typography>
+            <Box
+              component="span"
+              sx={{ ...tabular, fontWeight: 800, fontSize: '1.6rem', lineHeight: 1, color: o.alert && o.count > 0 ? 'error.main' : 'text.primary' }}
+            >
+              {o.count}
+            </Box>
+          </ButtonBase>
+        )
+      })}
+    </Box>
+  )
+}
+
+/** Busca à esquerda e a contagem do que está na lista à direita ("32 atletas"). */
+export function FilterBar({
+  value,
+  onChange,
+  placeholder,
+  count,
+  inputRef,
+  onKeyDown,
+  shortcut,
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  count: string
+  inputRef?: Ref<HTMLInputElement>
+  onKeyDown?: (e: KeyboardEvent<HTMLDivElement>) => void
+  /** Tecla de atalho mostrada no campo (só em computador). */
+  shortcut?: string
+}) {
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+      <TextField
+        size="small"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        inputRef={inputRef}
+        onKeyDown={onKeyDown}
+        sx={{ flex: 1, minWidth: 0 }}
+        slotProps={{
+          input: {
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchRoundedIcon />
+              </InputAdornment>
+            ),
+            endAdornment: shortcut ? (
+              <InputAdornment position="end">
+                <Kbd>{shortcut}</Kbd>
+              </InputAdornment>
+            ) : undefined,
+          },
+        }}
+      />
+      <Typography variant="body2" color="text.secondary" sx={{ ...tabular, flexShrink: 0, fontSize: '0.95rem' }}>
+        {count}
+      </Typography>
+    </Box>
+  )
+}
+
+/** Números da prova num só bloco, separados por linhas finas (inscritos, largaram, chegaram, DNF). */
+export function StatStrip({ items }: { items: { label: string; value: number; alert?: boolean }[] }) {
+  return (
+    <Card sx={{ display: 'grid', gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
+      {items.map((it, i) => (
+        <Box key={it.label} sx={{ px: 1.5, py: 1.25, borderLeft: i ? `1px solid ${tokens.line}` : 0, minWidth: 0 }}>
+          <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', lineHeight: 1.3 }}>
+            {it.label}
+          </Typography>
+          <Box
+            component="span"
+            sx={{ ...tabular, display: 'block', fontWeight: 800, fontSize: '1.5rem', lineHeight: 1.1, color: it.alert && it.value > 0 ? 'error.main' : 'text.primary' }}
+          >
+            {it.value}
+          </Box>
+        </Box>
+      ))}
+    </Card>
   )
 }
 
