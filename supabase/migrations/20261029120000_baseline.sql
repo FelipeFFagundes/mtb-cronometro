@@ -1,6 +1,6 @@
--- MTB Cronômetro - esquema do banco (Supabase / Postgres)
--- Cole este arquivo inteiro em: Supabase > SQL Editor > New query > Run
--- É seguro rodar de novo: cria o que falta e atualiza as funções sem apagar pilotos nem tempos.
+-- MTB Cronômetro - migration inicial (baseline): o esquema completo até a etapa 3 de docs/PLANO-EVENTOS.md.
+-- Em um banco que já existe, marque como aplicada: npx supabase migration repair --status applied 20261029120000
+-- Mudanças novas vão em outros arquivos (npm run db:new -- nome); não edite este.
 --
 -- Migrações automáticas:
 -- - Bancos sem especiais: as descidas existentes vão para a primeira especial.

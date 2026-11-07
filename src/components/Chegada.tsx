@@ -4,12 +4,15 @@ import type { Act } from '../App'
 import type { AppState, SyncStatus } from '../types'
 import { DEFAULT_STAGES } from '../types'
 import { clock, fmt } from '../lib/time'
+import { closedRunText } from '../lib/runs'
 import { LiveTimer } from './LiveTimer'
-import { radius, tabular, tokens } from '../theme'
+import { EtaHint } from './EtaHint'
+import { LateAlert, TrackProgress } from './TrackProgress'
+import { radius, tabular, tint, tokens } from '../theme'
 import { BottomSheet, ChipSelect, ConfirmDialog, EmptyState, Kbd, ListCard, PageHeader, RiderPlate, Section, StickyBar } from './ui'
 import { SyncStamp } from './SyncBanner'
 import { isTyping, overlayOpen, useKeydown } from '../hooks/useKeyboard'
-import { Box, Button, ButtonBase, Chip, IconButton, Typography } from '@mui/material'
+import { Alert, Box, Button, ButtonBase, Chip, IconButton, Typography } from '@mui/material'
 import SportsScoreRoundedIcon from '@mui/icons-material/SportsScoreRounded'
 import WarningRoundedIcon from '@mui/icons-material/WarningRounded'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
@@ -61,8 +64,13 @@ export function Chegada({ state, act, sync }: Props) {
 
   const riderName = (num: string) => state.riders.find((r) => r.num === num)?.name ?? `Piloto #${num}`
 
+  // Enquanto a confirmação está aberta, outro fiscal pode fechar a mesma descida (ou a largada ser cancelada)
+  const targetRun = confirmTarget?.runId ? state.runs.find((r) => r.id === confirmTarget.runId) : undefined
+  const targetGone = Boolean(confirmTarget?.runId) && targetRun?.status !== 'track'
+
   // Registra a chegada usando o tempo capturado no toque
   const executeFinish = async (target: ConfirmTarget) => {
+    if (targetGone) return
     const stageLabel = target.stageName ? ` (${target.stageName})` : ''
     setConfirmTarget(null)
     return act(
@@ -149,6 +157,13 @@ export function Chegada({ state, act, sync }: Props) {
         </StickyBar>
       )}
 
+      <LateAlert state={state} />
+      {track.length > 0 && (
+        <Section title="Progresso na pista">
+          <TrackProgress state={state} stageId={selectedFilterStage} />
+        </Section>
+      )}
+
       <Section title="Na pista" count={track.length}>
         {track.length === 0 ? (
           <EmptyState icon={<SportsScoreRoundedIcon />} title="Pista livre" text="Nenhum piloto descendo nesta seleção." />
@@ -174,7 +189,7 @@ export function Chegada({ state, act, sync }: Props) {
                     bgcolor: tokens.surface,
                     border: `2px solid ${expected ? tokens.finish : tokens.line}`,
                     transition: 'transform 0.1s',
-                    '&:active': { transform: 'scale(0.97)', bgcolor: 'rgba(255, 77, 79, 0.12)' },
+                    '&:active': { transform: 'scale(0.97)', bgcolor: tint(tokens.finish, 0.12) },
                   }}
                 >
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
@@ -204,6 +219,7 @@ export function Chegada({ state, act, sync }: Props) {
                   <Box sx={{ ...tabular, fontSize: '2rem', lineHeight: 1, fontWeight: 800, color: expected ? 'error.main' : 'text.primary' }}>
                     <LiveTimer start={run.start} />
                   </Box>
+                  <EtaHint state={state} run={run} />
                 </ButtonBase>
               )
             })}
@@ -289,10 +305,18 @@ export function Chegada({ state, act, sync }: Props) {
             <Typography sx={{ ...tabular, fontSize: 'clamp(3rem, 16vw, 4.5rem)', fontWeight: 900, color: 'error.main', lineHeight: 1.05 }}>
               {confirmTarget.startAt ? fmt(confirmTarget.capturedAt - confirmTarget.startAt) : clock(confirmTarget.capturedAt)}
             </Typography>
-            {confirmTarget.startAt && (
+            {confirmTarget.startAt && !targetGone && (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                 Cronômetro continua correndo: <Box component="span" sx={tabular}><LiveTimer start={confirmTarget.startAt} /></Box>
               </Typography>
+            )}
+
+            {targetGone && (
+              <Alert severity="warning" sx={{ mt: 2, textAlign: 'left' }}>
+                {targetRun
+                  ? closedRunText(confirmTarget.name, targetRun)
+                  : `A largada de ${confirmTarget.name} foi cancelada em outro aparelho.`}
+              </Alert>
             )}
 
             <Button
@@ -300,6 +324,7 @@ export function Chegada({ state, act, sync }: Props) {
               size="large"
               variant="contained"
               color="error"
+              disabled={targetGone}
               onClick={() => void executeFinish(confirmTarget)}
               startIcon={<SportsScoreRoundedIcon />}
               sx={{ mt: 3, minHeight: 60, fontSize: '1.15rem', fontWeight: 900 }}
@@ -309,9 +334,9 @@ export function Chegada({ state, act, sync }: Props) {
             </Button>
             <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
               <Button fullWidth variant="outlined" color="inherit" onClick={() => setConfirmTarget(null)}>
-                Cancelar
+                {targetGone ? 'Fechar' : 'Cancelar'}
               </Button>
-              {confirmTarget.runId && (
+              {confirmTarget.runId && !targetGone && (
                 <Button
                   fullWidth
                   variant="outlined"

@@ -128,8 +128,9 @@ function FiscalGuide() {
             <B>Cancelar largada</B> até o VAI!.
           </>,
           <>
-            Largou o piloto errado? Toque em <B>Desfazer</B> no aviso que aparece logo depois (fica 6 segundos). Depois disso, use
-            o botão de desfazer ao lado do piloto em <B>Últimas largadas</B>.
+            Largou o piloto errado? Toque em <B>Cancelar</B> no aviso que aparece logo depois (fica 6 segundos). Depois disso, use
+            o botão de desfazer ao lado do piloto em <B>Últimas largadas</B>. Cancelou sem querer? O aviso seguinte tem{' '}
+            <B>Seguir largada</B>, que volta o piloto para a pista no horário em que ele largou.
           </>,
         ]}
       />
@@ -209,6 +210,10 @@ function OrganizerGuide() {
             <B>Acesso:</B> toque em <B>Gerar código</B> e passe o código para os fiscais. Ele só aparece uma vez: anote ou
             compartilhe na hora.
           </>,
+          <>
+            Junto com o código aparece um <B>QR code do modo simplificado</B>: o fiscal aponta a câmera e entra direto numa
+            tela só com Largada e Chegada, sem digitar nada. Quem tiver o QR entra como fiscal, então passe só para a equipe.
+          </>,
         ]}
       />
       <Steps
@@ -216,6 +221,10 @@ function OrganizerGuide() {
         items={[
           <>
             Em <B>Eventos</B>, toque em <B>Divulgar</B>: mostra o QR code e o link para o público acompanhar ao vivo.
+          </>,
+          <>
+            Tem uma TV ou telão? Em <B>Divulgar</B>, <B>Abrir modo TV</B>: mostra quem está na pista, o progresso de cada um e a
+            classificação, trocando de categoria sozinha. Abra o link no navegador da TV e toque em <B>Tela cheia</B>.
           </>,
           <>
             Perdeu o controle de quem tem o código? Em <B>Prova → Acesso</B>, <B>Trocar código</B> e marque para tirar o acesso dos

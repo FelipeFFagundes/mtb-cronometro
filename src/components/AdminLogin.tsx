@@ -4,7 +4,7 @@ import LockOutlinedIcon from '@mui/icons-material/LockOutlined'
 import BackspaceOutlinedIcon from '@mui/icons-material/BackspaceOutlined'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
-import { radius, tabular, tokens } from '../theme'
+import { radius, tabular, tint, tokens } from '../theme'
 import { useBackClose } from '../hooks/useBackClose'
 import { api } from '../data'
 
@@ -71,7 +71,7 @@ function PinLogin({ onSuccess, onCancel }: Props) {
     border: `1px solid ${tokens.line}`,
     borderRadius: radius.md,
     '&:hover': { bgcolor: tokens.surface },
-    '&:active': { bgcolor: 'rgba(255, 214, 10, 0.15)' },
+    '&:active': { bgcolor: tint(tokens.brand, 0.15) },
   }
 
   return (

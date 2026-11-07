@@ -13,7 +13,7 @@ index.html → main.tsx (tema MUI + service worker)
        │    └─ supabaseApi.ts    Supabase + fila offline + relógio do servidor
        ├─ lib/ranking.ts, lib/time.ts   regras puras (ranking de enduro, formatação)
        └─ components/*           telas (Largada, Chegada, Pilotos, Público, Ranking)
-supabase/schema.sql              tabelas, RPCs idempotentes, RLS, realtime
+supabase/migrations/          migrations do banco (baseline = antigo schema.sql), aplicadas com `npm run db:push`
 public/sw.js                     cache do app para abrir sem sinal
 ```
 
@@ -38,7 +38,7 @@ Feito no branch `redesign/mobile`:
 ### Como aplicar no Supabase
 
 1. Publique o app novo **depois** de rodar o schema. Um app novo apontando para um banco antigo mostra o aviso "O banco precisa ser atualizado" e guarda as largadas na fila até o banco ser atualizado.
-2. Supabase → SQL Editor → cole `supabase/schema.sql` inteiro → Run.
+2. `npm run db:push` (veja o README; não use mais o SQL Editor).
 3. As especiais começam como `E1`, `E2` e `E3`. Renomeie-as na aba **Prova → Especiais**.
 4. Grades geradas antes ficavam só no celular de quem gerou: gere de novo na aba **Prova → Grade**.
 

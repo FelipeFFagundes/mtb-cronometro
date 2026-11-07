@@ -7,10 +7,12 @@ import { radius, tabular, tokens } from '../theme'
 import { ChipSelect, EmptyState, ListCard, PageHeader, RiderPlate, StatStrip, StickyBar } from './ui'
 import { SyncStamp } from './SyncBanner'
 import { ExportReport } from './ExportReport'
+import { ShareAthlete } from './ShareAthlete'
 import { Box, Button, ButtonBase, Chip, Collapse, Typography } from '@mui/material'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import EmojiEventsRoundedIcon from '@mui/icons-material/EmojiEventsRounded'
 import IosShareRoundedIcon from '@mui/icons-material/IosShareRounded'
+import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
 
 interface Props {
   state: AppState
@@ -37,7 +39,7 @@ function Position({ pos }: { pos: number }) {
         justifyContent: 'center',
         fontWeight: 800,
         fontSize: '1.15rem',
-        color: color ? '#000' : 'text.secondary',
+        color: color ? (tokens.mode === 'light' ? '#ffffff' : '#000000') : 'text.secondary',
         bgcolor: color ?? 'transparent',
       }}
     >
@@ -89,6 +91,7 @@ export function EnduroLeaderboard({ state, title = 'Classificação', subtitle, 
   const [selectedStageId, setSelectedStageId] = useState<string>('all')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
+  const [shareNum, setShareNum] = useState<string | null>(null)
 
   const categories = state.categories || []
   const { rows, stages } = buildEnduroRanking(state, cat, selectedStageId)
@@ -216,6 +219,16 @@ export function EnduroLeaderboard({ state, title = 'Classificação', subtitle, 
                         </Box>
                       )
                     })}
+                    <Button
+                      variant="outlined"
+                      color="inherit"
+                      size="small"
+                      startIcon={<ImageRoundedIcon />}
+                      onClick={() => setShareNum(row.rider.num)}
+                      sx={{ alignSelf: 'flex-start', mt: 0.5 }}
+                    >
+                      Imagem do atleta
+                    </Button>
                   </Box>
                 </Collapse>
               </Box>
@@ -227,6 +240,8 @@ export function EnduroLeaderboard({ state, title = 'Classificação', subtitle, 
       <Typography variant="caption" color="text.secondary">
         Classificação geral pela soma das especiais concluídas. Quem completou mais especiais fica à frente.
       </Typography>
+
+      <ShareAthlete state={state} num={shareNum} onClose={() => setShareNum(null)} />
 
       <ExportReport
         open={exportOpen}

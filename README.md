@@ -1,32 +1,44 @@
-# React + TypeScript + Vite
+# MTB Cronômetro
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+App de cronometragem de provas de MTB (React + Vite + Supabase). Detalhes em `docs/ARQUITETURA.md`.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Banco de dados: migrations
+
+O banco é versionado em `supabase/migrations/`. **Nunca mais cole SQL no SQL Editor**: toda mudança é um arquivo novo.
+
+### Primeira vez (uma vez por máquina)
+
+```bash
+npx supabase login
+npm run db:link -- --project-ref SEU_PROJECT_REF
+```
+
+O `project-ref` está na URL do painel: `supabase.com/dashboard/project/<project-ref>`.
+
+### Banco que já existe (o da prova atual)
+
+A `baseline` é o antigo `schema.sql`, idempotente. Marque-a como já aplicada, sem rodar nada:
+
+```bash
+npx supabase migration repair --status applied 20261029120000
+npm run db:status
+```
+
+### Dia a dia
+
+```bash
+npm run db:new -- nome_da_mudanca   # cria supabase/migrations/<timestamp>_nome_da_mudanca.sql
+# edite o arquivo, depois:
+npm run db:push                     # aplica no projeto ligado (só o que falta)
+npm run db:status                   # compara local x remoto
+```
+
+Regras:
+- Não edite uma migration já aplicada. Crie outra.
+- Prefira SQL idempotente (`if not exists`, `create or replace`), como a baseline.
+- Para testar antes, com Docker instalado: `npm run db:start` e `npm run db:reset` (recria o banco local do zero a partir das migrations).
