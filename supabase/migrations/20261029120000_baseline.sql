@@ -1,4 +1,4 @@
--- MTB Cronômetro - migration inicial (baseline): o esquema completo até a etapa 3 de docs/PLANO-EVENTOS.md.
+-- MTB Cronômetro - migration inicial (baseline): o esquema completo até a etapa 4 de docs/PLANO-EVENTOS.md (base de atletas).
 -- Em um banco que já existe, marque como aplicada: npx supabase migration repair --status applied 20261029120000
 -- Mudanças novas vão em outros arquivos (npm run db:new -- nome); não edite este.
 --
