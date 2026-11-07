@@ -3,7 +3,7 @@ import { api } from '../data'
 import type { PendingOp, SyncStatus } from '../types'
 import { clock } from '../lib/time'
 import { useNow } from '../hooks/useNow'
-import { radius, tabular, tokens } from '../theme'
+import { radius, tabular, tint, tokens } from '../theme'
 import { BottomSheet } from './ui'
 import { Box, Button, IconButton, Typography } from '@mui/material'
 import CloudOffRoundedIcon from '@mui/icons-material/CloudOffRounded'
@@ -68,8 +68,8 @@ export function SyncBanner({ sync, pending }: Props) {
           display: 'flex',
           alignItems: 'center',
           gap: 1.5,
-          bgcolor: isOffline ? 'rgba(251, 146, 60, 0.12)' : 'rgba(96, 165, 250, 0.12)',
-          border: `1px solid ${isOffline ? 'rgba(251, 146, 60, 0.4)' : 'rgba(96, 165, 250, 0.4)'}`,
+          bgcolor: tint(isOffline ? tokens.warn : '#60a5fa', 0.12),
+          border: `1px solid ${tint(isOffline ? tokens.warn : '#60a5fa', 0.4)}`,
         }}
       >
         <Box sx={{ color: isOffline ? 'warning.main' : 'info.main', display: 'flex' }}>

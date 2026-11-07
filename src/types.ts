@@ -200,10 +200,13 @@ export interface Api {
   removeRider(num: string): Promise<void>
   /** Cadastra ou atualiza (pelo número) vários pilotos de uma vez e cria as categorias que faltarem. */
   importRiders(riders: Rider[], categories: string[]): Promise<ImportResult>
-  startRun(num: string, stageId?: string): Promise<Run | null>
+  /** `atEpochMs`: horário da largada (ex.: seguir uma largada cancelada no horário original); padrão é agora. */
+  startRun(num: string, stageId?: string, atEpochMs?: number): Promise<Run | null>
   finishRun(num: string, atEpochMs?: number, stageId?: string): Promise<Run | null>
   dnfRun(id: string): Promise<void>
   undoRun(id: string): Promise<void>
+  /** Apaga todas as descidas do evento; pilotos, categorias, especiais e grade continuam. */
+  clearRuns(): Promise<void>
   loadDemo(): Promise<void>
   reset(): Promise<void>
 }

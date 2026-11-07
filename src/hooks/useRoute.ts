@@ -7,6 +7,9 @@ import { afterHistorySettles } from './useBackClose'
  *   #/eventos             eventos abertos e encerrados, "tenho um código"
  *   #/e/K7MQ2             evento K7MQ2, telas do público
  *   #/e/K7MQ2/fiscal      evento K7MQ2, telas do fiscal/organizador
+ *   #/e/K7MQ2/tv          evento K7MQ2 em tela cheia para TV ou telão (sem login)
+ *   #/e/K7MQ2/simples     fiscal simplificado: só Largada e Chegada
+ *   #/e/K7MQ2/simples/C   o mesmo, entrando com o código C do fiscal (QR code); o código sai do endereço logo depois
  *   #/organizar           eventos do organizador
  *   #/ajuda               como usar o app
  * O antigo "#admin" abre as telas do fiscal no evento em uso.
@@ -18,7 +21,16 @@ export type Route =
   | { name: 'organizer' }
   | { name: 'help' }
   /** code vazio = evento em uso (links antigos "#admin"). */
-  | { name: 'event'; code: string; fiscal: boolean }
+  | {
+      name: 'event'
+      code: string
+      fiscal: boolean
+      tv?: boolean
+      /** Fiscal simplificado: só Largada e Chegada. */
+      simple?: boolean
+      /** Código do fiscal vindo do QR code (entra e some do endereço). */
+      join?: string
+    }
 
 export function parseRoute(hash: string): Route {
   if (hash === '#admin') return { name: 'event', code: '', fiscal: true }
@@ -27,7 +39,11 @@ export function parseRoute(hash: string): Route {
   if (parts[0] === 'eventos') return { name: 'events' }
   if (parts[0] === 'ajuda') return { name: 'help' }
   if (parts[0] === 'e' && parts[1]) {
-    return { name: 'event', code: decodeURIComponent(parts[1]).toUpperCase(), fiscal: parts[2] === 'fiscal' }
+    const code = decodeURIComponent(parts[1]).toUpperCase()
+    if (parts[2] === 'simples') {
+      return { name: 'event', code, fiscal: true, simple: true, join: parts[3] ? decodeURIComponent(parts[3]) : undefined }
+    }
+    return { name: 'event', code, fiscal: parts[2] === 'fiscal', tv: parts[2] === 'tv' }
   }
   return { name: 'home' }
 }
@@ -36,13 +52,21 @@ export function routeHash(route: Route): string {
   if (route.name === 'organizer') return '#/organizar'
   if (route.name === 'events') return '#/eventos'
   if (route.name === 'help') return '#/ajuda'
-  if (route.name === 'event') return `#/e/${encodeURIComponent(route.code)}${route.fiscal ? '/fiscal' : ''}`
+  if (route.name === 'event') {
+    const sub = route.simple ? `/simples${route.join ? `/${encodeURIComponent(route.join)}` : ''}` : route.fiscal ? '/fiscal' : route.tv ? '/tv' : ''
+    return `#/e/${encodeURIComponent(route.code)}${sub}`
+  }
   return '#/'
 }
 
 /** Link completo de um evento (para compartilhar e para o QR code). */
-export function eventLink(code: string): string {
-  return `${location.origin}${location.pathname}${routeHash({ name: 'event', code, fiscal: false })}`
+export function eventLink(code: string, tv = false): string {
+  return `${location.origin}${location.pathname}${routeHash({ name: 'event', code, fiscal: false, tv })}`
+}
+
+/** Link do QR code do fiscal: abre o modo simplificado já entrando com o código. */
+export function marshalLink(eventCode: string, marshalCode: string): string {
+  return `${location.origin}${location.pathname}${routeHash({ name: 'event', code: eventCode, fiscal: true, simple: true, join: marshalCode })}`
 }
 
 /**

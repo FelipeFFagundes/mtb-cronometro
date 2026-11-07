@@ -4,6 +4,8 @@ import type { Act } from '../App'
 import type { AppState, MarshalAccessInfo } from '../types'
 import { tabular, tokens } from '../theme'
 import { BottomSheet, ConfirmDialog } from './ui'
+import { QrCode } from './QrCode'
+import { marshalLink } from '../hooks/useRoute'
 import { Box, Button, Card, Checkbox, FormControlLabel, Typography } from '@mui/material'
 import KeyRoundedIcon from '@mui/icons-material/KeyRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
@@ -58,8 +60,11 @@ export function MarshalAccess({ state, act }: Props) {
   }
 
   const eventName = state.event?.name ?? 'prova'
+  // QR do modo simplificado: quem lê entra como fiscal direto na Largada/Chegada, sem digitar o código
+  const qrLink = code && state.event?.publicCode ? marshalLink(state.event.publicCode, code) : ''
   const shareText = code
-    ? `Código do fiscal (${eventName}): ${code}\nAbra ${location.origin} e toque em "Fiscal".`
+    ? `Código do fiscal (${eventName}): ${code}\n` +
+      (qrLink ? `Entrar direto (só largada e chegada): ${qrLink}` : `Abra ${location.origin} e toque em "Fiscal".`)
     : ''
 
   const copy = () =>
@@ -141,6 +146,15 @@ export function MarshalAccess({ state, act }: Props) {
           >
             {code}
           </Box>
+          {qrLink && (
+            <>
+              <QrCode value={qrLink} />
+              <Typography variant="body2" color="text.secondary">
+                <b>Modo simplificado:</b> o fiscal aponta a câmera e entra direto numa tela só com Largada e Chegada, sem
+                digitar nada. Quem tiver este QR entra como fiscal: passe só para a equipe.
+              </Typography>
+            </>
+          )}
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
             <Button variant="outlined" color="inherit" startIcon={<ContentCopyRoundedIcon />} onClick={copy}>
               Copiar

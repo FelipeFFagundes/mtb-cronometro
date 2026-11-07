@@ -3,6 +3,7 @@ import type { Access, Api, AppState, AthleteEntry, AthleteSummary, EventInfo, Ma
 import { DEFAULT_CATEGORIES, DEFAULT_STAGES } from '../types'
 import { DEMO_RIDERS, DEMO_STAGES } from './demo'
 import { clock } from '../lib/time'
+import { closedRun, closedRunText } from '../lib/runs'
 
 /*
  * Camada Supabase com FILA OFFLINE
@@ -463,6 +464,13 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
           notice('O banco precisa ser atualizado (rode supabase/schema.sql). As ações continuam guardadas.', true)
           break
         } else if (outcome === 'wait') {
+          // Chegada recusada porque outro aparelho já fechou a descida: não adianta tentar de novo
+          const closed = op.kind === 'finish' && op.num ? closedRun(server.runs, op.num, op.stageId) : undefined
+          if (closed) {
+            removeOp(op.id)
+            notice(`Chegada não enviada. ${closedRunText(who(op.num!), closed)}`)
+            continue
+          }
           // Ex.: a chegada chegou antes da largada (celular da largada sem sinal). Tenta de novo depois.
           op.attempts += 1
           op.nextTry = Date.now() + Math.min(5000 * op.attempts, 30000)
@@ -893,7 +901,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       return { added: riders.length - updated, updated, categoriesAdded: newCats.length }
     },
 
-    async startRun(num, stageId) {
+    async startRun(num, stageId, atEpochMs) {
       const st = view()
       const rider = st.riders.find((r) => r.num === num)
       if (!rider) throw new Error(`Piloto #${num} não cadastrado`)
@@ -920,7 +928,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
         kind: 'start',
         num,
         stageId: targetStageId,
-        at: nowSrv(),
+        at: Math.min(atEpochMs ?? nowSrv(), nowSrv()),
         label: `Largada · ${who(num)} (${stageName})`,
       })
       return view().runs.find((r) => r.id === id) ?? null
@@ -932,6 +940,8 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       if (!rider) throw new Error(`Piloto #${num} não cadastrado`)
       const open = st.runs.find((r) => r.num === num && r.status === 'track' && (!stageId || r.stageId === stageId))
       if (!open) {
+        const closed = closedRun(st.runs, num, stageId)
+        if (closed) throw new Error(closedRunText(rider.name, closed))
         if (online) throw new Error(`${rider.name} não está na pista`)
         if (queue.some((o) => o.kind === 'finish' && o.num === num)) {
           throw new Error(`Chegada de ${rider.name} já foi guardada`)
@@ -960,6 +970,15 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       const run = view().runs.find((r) => r.id === id)
       if (!run) return
       enqueue({ id: crypto.randomUUID(), kind: 'undo', runId: id, at: nowSrv(), label: `Desfazer · ${who(run.num)}` })
+    },
+
+    async clearRuns() {
+      const event = ev()
+      ensure(await sb.from('runs').delete().eq('event_id', event))
+      // Largadas e chegadas ainda na fila recriariam descidas apagadas
+      queue = queue.filter((op) => (op.eventId ?? event) !== event)
+      saveQueue()
+      await pull()
     },
 
     async loadDemo() {

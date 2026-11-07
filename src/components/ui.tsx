@@ -2,7 +2,7 @@ import type { KeyboardEvent, ReactNode, Ref } from 'react'
 import { Box, Button, ButtonBase, Card, Chip, Dialog, IconButton, InputAdornment, Skeleton, SwipeableDrawer, TextField, Typography } from '@mui/material'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
-import { TOPBAR_H, look, radius, tabular, tokens } from '../theme'
+import { TOPBAR_H, look, radius, tabular, tint, tokens } from '../theme'
 import { useBackClose } from '../hooks/useBackClose'
 
 /* Peças de interface compartilhadas pelas telas. */
@@ -12,8 +12,8 @@ type Tone = 'brand' | 'start' | 'finish' | 'muted' | 'warn'
 const toneColors: Record<Tone, { bg: string; fg: string; border: string }> = {
   brand: { bg: tokens.brand, fg: tokens.brandInk, border: tokens.brand },
   start: { bg: tokens.start, fg: tokens.startInk, border: tokens.start },
-  finish: { bg: tokens.finish, fg: '#fff', border: tokens.finish },
-  warn: { bg: 'rgba(251, 146, 60, 0.15)', fg: tokens.warn, border: 'rgba(251, 146, 60, 0.4)' },
+  finish: { bg: tokens.finish, fg: tokens.finishInk, border: tokens.finish },
+  warn: { bg: tint(tokens.warn, 0.15), fg: tokens.warn, border: tint(tokens.warn, 0.4) },
   muted: { bg: tokens.raised, fg: tokens.text, border: tokens.lineStrong },
 }
 
@@ -151,7 +151,7 @@ export function CountCards({
               textAlign: 'left',
               borderRadius: radius.md,
               border: `1.5px solid ${selected ? tokens.brand : tokens.line}`,
-              bgcolor: selected ? 'rgba(255, 214, 10, 0.08)' : 'background.paper',
+              bgcolor: selected ? tint(tokens.brand, 0.08) : 'background.paper',
               transition: 'border-color 0.15s, background-color 0.15s',
             }}
           >
@@ -254,7 +254,7 @@ export function StickyBar({ children }: { children: ReactNode }) {
         mx: -2,
         px: 2,
         py: 1.25,
-        bgcolor: 'rgba(10, 10, 11, 0.92)',
+        bgcolor: tint(tokens.bg, 0.92),
         backdropFilter: 'blur(10px)',
         display: 'flex',
         flexDirection: 'column',

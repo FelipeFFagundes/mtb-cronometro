@@ -18,6 +18,7 @@ import IosShareRoundedIcon from '@mui/icons-material/IosShareRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import FileCopyRoundedIcon from '@mui/icons-material/FileCopyRounded'
 import EventRoundedIcon from '@mui/icons-material/EventRounded'
+import TvRoundedIcon from '@mui/icons-material/TvRounded'
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 
 interface Props {
@@ -299,6 +300,16 @@ export function EventsAdmin({ events, act, onOpen }: Props) {
             <Typography variant="caption" sx={{ ...tabular, wordBreak: 'break-all', color: 'text.secondary' }}>
               {link}
             </Typography>
+            <Button
+              variant="outlined"
+              color="inherit"
+              startIcon={<TvRoundedIcon />}
+              href={eventLink(sharing.publicCode ?? '', true)}
+              target="_blank"
+              rel="noopener"
+            >
+              Abrir modo TV (telão)
+            </Button>
             <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
               <Button variant="outlined" color="inherit" startIcon={<ContentCopyRoundedIcon />} onClick={copyLink}>
                 Copiar link
