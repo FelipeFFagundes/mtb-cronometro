@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { api } from './data'
 import { useStore } from './hooks/useStore'
@@ -11,13 +11,15 @@ import { SyncBanner } from './components/SyncBanner'
 import { AdminLogin } from './components/AdminLogin'
 import { ConfirmDialog, EmptyState, PageSkeleton } from './components/ui'
 import { afterHistorySettles, useBackClose } from './hooks/useBackClose'
-import { useRoute } from './hooks/useRoute'
+import { useRoute, type Route } from './hooks/useRoute'
 import { Home } from './components/Home'
 import { Landing } from './components/Landing'
 import { Help } from './components/Help'
 import { EventsAdmin } from './components/EventsAdmin'
 import { isSoundEnabled, playCountdownTick, setSoundEnabled, unlockAudio } from './lib/sound'
-import { BOTTOMNAV_H, TOPBAR_H, display, radius, tokens } from './theme'
+import { BOTTOMNAV_H, PALETTE_INFO, TOPBAR_H, artSx, display, logoSx, paletteId, radius, tokens } from './theme'
+import { ThemePicker } from './components/ThemePicker'
+import { TvMode } from './components/TvMode'
 import type { SyncStatus } from './types'
 import {
   AppBar,
@@ -49,6 +51,9 @@ import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded'
 import ScienceRoundedIcon from '@mui/icons-material/ScienceRounded'
 import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded'
+import TimerOffRoundedIcon from '@mui/icons-material/TimerOffRounded'
+import PaletteRoundedIcon from '@mui/icons-material/PaletteRounded'
+import TvRoundedIcon from '@mui/icons-material/TvRounded'
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import VolumeUpRoundedIcon from '@mui/icons-material/VolumeUpRounded'
 import VolumeOffRoundedIcon from '@mui/icons-material/VolumeOffRounded'
@@ -77,7 +82,14 @@ function withTransition(update: () => void) {
 export interface UndoAction {
   run: () => Promise<unknown>
   doneMsg: string
+  /** Texto do botão (padrão "Desfazer"). */
+  label?: string
+  /** Oferecida no aviso seguinte, depois de desfazer (ex.: "Seguir largada" depois de cancelar). */
+  then?: UndoAction | (() => UndoAction | undefined)
 }
+
+/** Confirmações do menu do organizador. */
+type ConfirmKind = 'demo' | 'runs' | 'reset'
 
 /** Executa uma ação, mostra toast de sucesso/erro (com "Desfazer", se houver) e devolve se deu certo. */
 export type Act = (fn: () => Promise<unknown>, okMsg?: string, undo?: UndoAction) => Promise<boolean>
@@ -174,6 +186,7 @@ export default function App() {
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
   useBackClose(Boolean(menuAnchor), () => setMenuAnchor(null))
   const [soundOn, setSoundOn] = useState(isSoundEnabled)
+  const [themeOpen, setThemeOpen] = useState(false)
 
   const toggleSound = () => {
     const next = !soundOn
@@ -185,9 +198,9 @@ export default function App() {
       playCountdownTick()
     }
   }
-  const [confirmData, setConfirmData] = useState<'demo' | 'reset' | null>(null)
+  const [confirmData, setConfirmData] = useState<ConfirmKind | null>(null)
   // Mantém o texto do diálogo estável enquanto ele anima ao fechar
-  const [confirmKind, setConfirmKind] = useState<'demo' | 'reset'>('demo')
+  const [confirmKind, setConfirmKind] = useState<ConfirmKind>('demo')
   if (confirmData && confirmData !== confirmKind) setConfirmKind(confirmData)
   const [toast, setToast] = useState<{ msg: string; err: boolean; key: number; undo?: UndoAction } | null>(null)
 
@@ -220,6 +233,27 @@ export default function App() {
   )
 
   const openEvent = (code: string, fiscal: boolean) => navigate({ name: 'event', code, fiscal })
+
+  // QR code do fiscal: entra com o código do link e tira o código do endereço (e do histórico)
+  const joinCode = route.name === 'event' ? route.join : undefined
+  const joinEvent = route.name === 'event' ? route.code : ''
+  const joining = useRef<string | null>(null)
+  useEffect(() => {
+    if (!joinCode || joining.current === joinCode) return
+    joining.current = joinCode
+    const simple: Route = { name: 'event', code: joinEvent, fiscal: true, simple: true }
+    if (isOrganizer) {
+      navigate(simple, { replace: true })
+      return
+    }
+    api
+      .joinWithCode(joinCode)
+      .then(() => show('Modo fiscal liberado'))
+      .catch((e: unknown) => show(e instanceof Error ? e.message : 'Código inválido. Confira com o organizador.', true))
+      .finally(() => navigate(simple, { replace: true }))
+    // Só reage a um código novo no endereço
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joinCode])
 
   // Para onde ir depois de entrar: telas do fiscal no evento, ou área do organizador
   const [loginTarget, setLoginTarget] = useState<'event' | 'organizer'>('event')
@@ -276,12 +310,46 @@ export default function App() {
     setConfirmData(null)
     if (kind === 'demo') void act(() => api.loadDemo(), 'Dados de exemplo carregados')
     if (kind === 'reset') void act(() => api.reset(), 'Todos os pilotos e tempos foram apagados')
+    if (kind === 'runs') void act(() => api.clearRuns(), 'Todas as descidas foram apagadas. Os pilotos continuam.')
+  }
+
+  const runsCount = state.runs.length
+  const confirmTexts: Record<ConfirmKind, { title: string; label: string; text: string }> = {
+    demo: {
+      title: 'Carregar dados de exemplo?',
+      label: 'Carregar',
+      text: 'As descidas registradas serão apagadas e os pilotos de exemplo serão adicionados.',
+    },
+    runs: {
+      title: 'Apagar todas as descidas?',
+      label: 'Apagar descidas',
+      text:
+        `${runsCount === 1 ? 'A descida registrada' : `As ${runsCount} descidas registradas`} neste evento ${runsCount === 1 ? 'será apagada' : 'serão apagadas'} ` +
+        'para todos os aparelhos. Pilotos, categorias, especiais e grade continuam. Exporte os resultados antes se quiser guardar. Não dá para desfazer.',
+    },
+    reset: {
+      title: 'Apagar pilotos e tempos?',
+      label: 'Apagar tudo',
+      text: 'Todos os pilotos e todas as descidas serão apagados para todos os aparelhos. Não dá para desfazer.',
+    },
   }
 
   const inEvent = route.name === 'event'
   const isAdmin = inEvent && route.fiscal && canOperate
   // Fiscal não cadastra: a aba Prova é só do organizador
-  const activeTab: AdminTab = adminTab === 'pilotos' && !isOrganizer ? 'largada' : adminTab
+  // Fiscal simplificado: só Largada e Chegada
+  const simpleMode = route.name === 'event' && Boolean(route.simple)
+  const activeTab: AdminTab =
+    simpleMode && adminTab !== 'largada' && adminTab !== 'chegada'
+      ? 'largada'
+      : adminTab === 'pilotos' && !isOrganizer
+        ? 'largada'
+        : adminTab
+
+  // Modo TV: tela cheia, sem barras nem login; o evento vem do código do link
+  if (route.name === 'event' && route.tv && !loading && route.code === eventCode) {
+    return <TvMode state={state} sync={sync} onExit={() => openEvent(route.code, false)} />
+  }
 
   return (
     <Box sx={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
@@ -299,14 +367,13 @@ export default function App() {
           backgroundRepeat: 'no-repeat',
           backgroundPosition: 'center 58%',
           backgroundSize: 'min(120vw, 760px) auto',
-          mixBlendMode: 'screen',
-          opacity: 0.13,
+          ...artSx,
         }}
       />
       <AppBar
         position="sticky"
         elevation={0}
-        sx={{ bgcolor: '#000', viewTransitionName: 'topbar', borderBottom: `1px solid ${tokens.line}`, pt: 'env(safe-area-inset-top)' }}
+        sx={{ bgcolor: tokens.bar, color: tokens.text, viewTransitionName: 'topbar', borderBottom: `1px solid ${tokens.line}`, pt: 'env(safe-area-inset-top)' }}
       >
         <Toolbar disableGutters sx={{ minHeight: `${TOPBAR_H}px !important`, px: 2, gap: 1 }}>
           <Box
@@ -315,7 +382,7 @@ export default function App() {
             aria-label="SPET Race Timer, ir para o início"
             sx={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}
           >
-            <Box component="img" src="/logo.png" alt="" sx={{ height: 26, width: 'auto', display: 'block' }} />
+            <Box component="img" src="/logo.png" alt="" sx={{ height: 26, width: 'auto', display: 'block', ...logoSx }} />
             <Box sx={{ minWidth: 0, lineHeight: 1 }}>
               <Typography
                 sx={{ ...display, fontWeight: 800, fontSize: '1.15rem', letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}
@@ -356,6 +423,18 @@ export default function App() {
                   </ListItemIcon>
                   Ver página pública
                 </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    setMenuAnchor(null)
+                    if (eventCode) navigate({ name: 'event', code: eventCode, fiscal: false, tv: true })
+                  }}
+                  sx={{ minHeight: 48 }}
+                >
+                  <ListItemIcon>
+                    <TvRoundedIcon fontSize="small" />
+                  </ListItemIcon>
+                  Modo TV
+                </MenuItem>
                 {isOrganizer && (
                   <MenuItem
                     onClick={() => {
@@ -375,6 +454,18 @@ export default function App() {
                     {soundOn ? <VolumeUpRoundedIcon fontSize="small" /> : <VolumeOffRoundedIcon fontSize="small" />}
                   </ListItemIcon>
                   Som da largada: {soundOn ? 'ligado' : 'desligado'}
+                </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    setMenuAnchor(null)
+                    afterHistorySettles(() => setThemeOpen(true))
+                  }}
+                  sx={{ minHeight: 48 }}
+                >
+                  <ListItemIcon>
+                    <PaletteRoundedIcon fontSize="small" />
+                  </ListItemIcon>
+                  Tema: {PALETTE_INFO.find((t) => t.id === paletteId)?.name}
                 </MenuItem>
                 <MenuItem
                   onClick={() => {
@@ -400,6 +491,21 @@ export default function App() {
                       <ScienceRoundedIcon fontSize="small" />
                     </ListItemIcon>
                     Carregar dados de exemplo
+                  </MenuItem>
+                )}
+                {isOrganizer && (
+                  <MenuItem
+                    onClick={() => {
+                      setMenuAnchor(null)
+                      setConfirmData('runs')
+                    }}
+                    disabled={runsCount === 0}
+                    sx={{ minHeight: 48, color: 'error.main' }}
+                  >
+                    <ListItemIcon sx={{ color: 'inherit' }}>
+                      <TimerOffRoundedIcon fontSize="small" />
+                    </ListItemIcon>
+                    Apagar todas as descidas
                   </MenuItem>
                 )}
                 {isOrganizer && (
@@ -477,6 +583,7 @@ export default function App() {
             onFiscal={handleRequestAdmin}
             onOrganizer={goOrganizer}
             onHelp={() => navigate({ name: 'help' })}
+            onTheme={() => setThemeOpen(true)}
           />
         ) : route.name === 'help' ? (
           <Help role={access.role} />
@@ -539,7 +646,7 @@ export default function App() {
             left: 0,
             right: 0,
             zIndex: 10,
-            bgcolor: '#000',
+            bgcolor: tokens.bar,
             borderTop: `1px solid ${tokens.line}`,
             viewTransitionName: 'bottomnav',
             pb: 'env(safe-area-inset-bottom)',
@@ -549,8 +656,8 @@ export default function App() {
             <BottomNavigation showLabels value={activeTab} onChange={(_, v: AdminTab) => withTransition(() => setAdminTab(v))}>
               <BottomNavigationAction label="Largada" value="largada" icon={<TrafficRoundedIcon />} />
               <BottomNavigationAction label="Chegada" value="chegada" icon={<SportsScoreRoundedIcon />} />
-              <BottomNavigationAction label="Ranking" value="ranking" icon={<EmojiEventsRoundedIcon />} />
-              {isOrganizer && <BottomNavigationAction label="Prova" value="pilotos" icon={<PeopleAltRoundedIcon />} />}
+              {!simpleMode && <BottomNavigationAction label="Ranking" value="ranking" icon={<EmojiEventsRoundedIcon />} />}
+              {isOrganizer && !simpleMode && <BottomNavigationAction label="Prova" value="pilotos" icon={<PeopleAltRoundedIcon />} />}
             </BottomNavigation>
           ) : (
             <BottomNavigation showLabels value={publicTab} onChange={(_, v: PublicTab) => withTransition(() => setPublicTab(v))}>
@@ -567,14 +674,14 @@ export default function App() {
         onClose={() => setConfirmData(null)}
         onConfirm={runConfirmedData}
         icon={<WarningAmberRoundedIcon />}
-        tone={confirmKind === 'reset' ? 'error' : 'warning'}
-        title={confirmKind === 'reset' ? 'Apagar pilotos e tempos?' : 'Carregar dados de exemplo?'}
-        confirmLabel={confirmKind === 'reset' ? 'Apagar tudo' : 'Carregar'}
+        tone={confirmKind === 'demo' ? 'warning' : 'error'}
+        title={confirmTexts[confirmKind].title}
+        confirmLabel={confirmTexts[confirmKind].label}
       >
-        {confirmKind === 'reset'
-          ? 'Todos os pilotos e todas as descidas serão apagados para todos os aparelhos. Não dá para desfazer.'
-          : 'As descidas registradas serão apagadas e os pilotos de exemplo serão adicionados.'}
+        {confirmTexts[confirmKind].text}
       </ConfirmDialog>
+
+      <ThemePicker open={themeOpen} onClose={() => setThemeOpen(false)} />
 
       <Snackbar
         key={toast?.key}
@@ -600,11 +707,11 @@ export default function App() {
                   onClick={() => {
                     const undo = toast.undo!
                     setToast(null)
-                    void act(undo.run, undo.doneMsg)
+                    void act(undo.run, undo.doneMsg, typeof undo.then === 'function' ? undo.then() : undo.then)
                   }}
-                  sx={{ fontWeight: 900, minHeight: 36, border: '1px solid currentColor' }}
+                  sx={{ fontWeight: 900, minHeight: 36, border: '1px solid currentColor', whiteSpace: 'nowrap', flexShrink: 0 }}
                 >
-                  Desfazer
+                  {toast.undo.label ?? 'Desfazer'}
                 </Button>
               ) : undefined
             }

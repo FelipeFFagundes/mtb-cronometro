@@ -2,11 +2,12 @@ import { useState, useMemo } from 'react'
 import type { AppState, SyncStatus } from '../types'
 import { DEFAULT_STAGES } from '../types'
 import { LiveTimer } from './LiveTimer'
+import { TrackProgress } from './TrackProgress'
 import { EnduroLeaderboard } from './EnduroLeaderboard'
 import { StartGridList } from './StartGridList'
 import { clock, fmt } from '../lib/time'
 import { gridForStage } from '../lib/grid'
-import { display, radius, tabular, tokens } from '../theme'
+import { display, radius, tabular, tint, tokens } from '../theme'
 import { ChipSelect, EmptyState, ListCard, PageHeader, RiderPlate, Section, StickyBar } from './ui'
 import { Box, Typography } from '@mui/material'
 import FormatListNumberedRoundedIcon from '@mui/icons-material/FormatListNumberedRounded'
@@ -31,7 +32,7 @@ function LiveBadge({ active }: { active: boolean }) {
         px: 1.25,
         height: 28,
         borderRadius: radius.pill,
-        bgcolor: active ? 'rgba(255, 77, 79, 0.15)' : tokens.raised,
+        bgcolor: active ? tint(tokens.finish, 0.15) : tokens.raised,
         color: active ? 'error.main' : 'text.secondary',
         ...display,
         fontWeight: 700,
@@ -107,6 +108,8 @@ function PublicLive({ state }: { state: AppState }) {
         right={<LiveBadge active={onTrack.length > 0} />}
       />
 
+      <TrackProgress state={state} />
+
       {onTrack.length === 0 ? (
         <EmptyState title="Ninguém na trilha agora" text="A próxima largada aparece aqui com o cronômetro correndo." />
       ) : (
@@ -124,7 +127,7 @@ function PublicLive({ state }: { state: AppState }) {
                   p: 1.5,
                   borderRadius: radius.lg,
                   bgcolor: tokens.surface,
-                  border: `1px solid ${idx === 0 ? 'rgba(255, 77, 79, 0.45)' : tokens.line}`,
+                  border: `1px solid ${idx === 0 ? tint(tokens.finish, 0.45) : tokens.line}`,
                 }}
               >
                 <RiderPlate num={run.num} size="lg" />

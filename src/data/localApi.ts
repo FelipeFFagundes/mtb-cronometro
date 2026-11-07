@@ -411,7 +411,7 @@ export function createLocalApi(): Api {
       write(s)
     },
 
-    async startRun(num, stageId) {
+    async startRun(num, stageId, atEpochMs) {
       const s = read()
       const rider = s.riders.find((r) => r.num === num)
       if (!rider) throw new Error(`Piloto #${num} não cadastrado`)
@@ -436,7 +436,7 @@ export function createLocalApi(): Api {
         id: crypto.randomUUID(),
         num,
         stageId: targetStageId,
-        start: Date.now(),
+        start: Math.min(atEpochMs ?? Date.now(), Date.now()),
         end: null,
         status: 'track',
       }
@@ -480,6 +480,12 @@ export function createLocalApi(): Api {
         stages: [...DEMO_STAGES],
         grid: [],
       })
+    },
+
+    async clearRuns() {
+      const s = read()
+      s.runs = []
+      write(s)
     },
 
     async reset() {

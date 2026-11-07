@@ -1,13 +1,14 @@
 import type { ReactNode } from 'react'
 import type { Access, EventInfo } from '../types'
 import { sortEvents, todayIso } from '../lib/events'
-import { display, look, radius, tokens } from '../theme'
+import { display, logoSx, look, radius, tokens } from '../theme'
 import { Box, Button, ButtonBase, Chip, Typography } from '@mui/material'
 import SensorsRoundedIcon from '@mui/icons-material/SensorsRounded'
 import TrafficRoundedIcon from '@mui/icons-material/TrafficRounded'
 import ManageAccountsRoundedIcon from '@mui/icons-material/ManageAccountsRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded'
+import PaletteRoundedIcon from '@mui/icons-material/PaletteRounded'
 
 interface Props {
   events: EventInfo[]
@@ -18,6 +19,7 @@ interface Props {
   onFiscal: () => void
   onOrganizer: () => void
   onHelp: () => void
+  onTheme: () => void
 }
 
 function EntryCard({
@@ -88,7 +90,7 @@ function EntryCard({
 }
 
 /** Página inicial: escolher entre acompanhar uma prova, entrar como fiscal ou como organizador. */
-export function Landing({ events, access, currentEvent, onEvents, onFiscal, onOrganizer, onHelp }: Props) {
+export function Landing({ events, access, currentEvent, onEvents, onFiscal, onOrganizer, onHelp, onTheme }: Props) {
   const { open } = sortEvents(events)
   const today = open.filter((e) => e.startsOn === todayIso() && e.status === 'aberto')
   const canOperate = access.role !== 'public'
@@ -104,7 +106,7 @@ export function Landing({ events, access, currentEvent, onEvents, onFiscal, onOr
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, pt: 1 }}>
       <Box sx={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5, py: 2 }}>
         {/* "screen" tira o fundo preto do logo, que ficaria como um retângulo sobre o desenho do fundo */}
-        <Box component="img" src="/logo.png" alt="SPET" sx={{ height: 72, width: 'auto', mixBlendMode: 'screen' }} />
+        <Box component="img" src="/logo.png" alt="SPET" sx={{ height: 72, width: 'auto', ...logoSx }} />
         <Typography
           component="h1"
           sx={{ ...display, fontWeight: 800, fontSize: '2.4rem', lineHeight: 1, letterSpacing: '0.04em', textTransform: 'uppercase' }}
@@ -152,9 +154,14 @@ export function Landing({ events, access, currentEvent, onEvents, onFiscal, onOr
         />
       </Box>
 
-      <Button color="inherit" startIcon={<HelpOutlineRoundedIcon />} onClick={onHelp} sx={{ alignSelf: 'center', color: tokens.muted }}>
-        Como usar o app
-      </Button>
+      <Box sx={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: 1 }}>
+        <Button color="inherit" startIcon={<HelpOutlineRoundedIcon />} onClick={onHelp} sx={{ color: tokens.muted }}>
+          Como usar o app
+        </Button>
+        <Button color="inherit" startIcon={<PaletteRoundedIcon />} onClick={onTheme} sx={{ color: tokens.muted }}>
+          Tema
+        </Button>
+      </Box>
     </Box>
   )
 }

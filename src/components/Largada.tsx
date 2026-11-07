@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { api } from '../data'
-import type { Act } from '../App'
+import type { Act, UndoAction } from '../App'
 import type { AppState, Rider, Run, Stage, SyncStatus } from '../types'
 export type { StartGridItem } from '../types'
 import { DEFAULT_STAGES } from '../types'
@@ -9,8 +9,8 @@ import { gridForStage } from '../lib/grid'
 import { athleteKey } from '../lib/athletes'
 import { playCountdownTick, playStartGo, unlockAudio } from '../lib/sound'
 import { useNow } from '../hooks/useNow'
-import { BOTTOMNAV_H, radius, tabular, tokens } from '../theme'
-import { ChipSelect, ConfirmDialog, CountCards, EmptyState, FilterBar, Kbd, ListCard, PageHeader, RiderPlate, Section, StickyBar } from './ui'
+import { BOTTOMNAV_H, radius, tabular, tint, tokens } from '../theme'
+import { ChipSelect, CountCards, EmptyState, FilterBar, Kbd, ListCard, PageHeader, RiderPlate, Section, StickyBar } from './ui'
 import { SyncStamp } from './SyncBanner'
 import { LiveTimer } from './LiveTimer'
 import { useBackClose } from '../hooks/useBackClose'
@@ -48,6 +48,17 @@ function ScheduleHint({ epoch }: { epoch: number }) {
   return <Box component="span" sx={{ color: 'warning.main' }}>atrasado {-diffMin} min</Box>
 }
 
+/** Depois de cancelar uma largada: seguir com ela, no horário em que aconteceu (o cronômetro não perde nada). */
+function keepStart(run: Run): UndoAction {
+  return {
+    label: 'Seguir largada',
+    run: () => api.startRun(run.num, run.stageId, run.start),
+    doneMsg: `Largada de #${run.num} mantida, no horário original (${clock(run.start)}).`,
+  }
+}
+
+const cancelMsg = (num: string) => `Largada de #${num} cancelada. O piloto voltou para a fila.`
+
 export function Largada({ state, act, sync }: Props) {
   const online = sync.online
   const stages = state.stages && state.stages.length > 0 ? state.stages : DEFAULT_STAGES
@@ -58,7 +69,6 @@ export function Largada({ state, act, sync }: Props) {
   const [selectedNum, setSelectedNum] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
-  const [undoTarget, setUndoTarget] = useState<Run | null>(null)
 
   // Estado da Contagem Regressiva
   const [countdownTarget, setCountdownTarget] = useState<{ rider: Rider; stage: Stage } | null>(null)
@@ -92,17 +102,19 @@ export function Largada({ state, act, sync }: Props) {
         if (!hasFired) {
           hasFired = true
           const { rider, stage } = countdownTarget
-          let runId: string | undefined
+          let started: Run | null = null
           void actRef.current(
             async () => {
-              runId = (await api.startRun(rider.num, stage.id))?.id
+              started = await api.startRun(rider.num, stage.id)
             },
             `#${rider.num} ${rider.name} largou na ${stage.name}!` + (onlineRef.current ? '' : ' (salvo offline)'),
             {
+              label: 'Cancelar',
               run: async () => {
-                if (runId) await api.undoRun(runId)
+                if (started) await api.undoRun(started.id)
               },
-              doneMsg: `Largada de #${rider.num} desfeita. O piloto voltou para a fila.`,
+              doneMsg: cancelMsg(rider.num),
+              then: () => (started ? keepStart(started) : undefined),
             },
           )
         }
@@ -230,7 +242,12 @@ export function Largada({ state, act, sync }: Props) {
                 <LiveTimer start={run.start} />
               </Typography>
             )}
-            <IconButton aria-label={`Desfazer largada de ${r?.name ?? run.num}`} onClick={() => setUndoTarget(run)} sx={{ color: 'text.secondary' }}>
+            {/* Cancela na hora, sem confirmação: o aviso seguinte oferece "Seguir largada" */}
+            <IconButton
+              aria-label={`Cancelar largada de ${r?.name ?? run.num}`}
+              onClick={() => void act(() => api.undoRun(run.id), cancelMsg(run.num), keepStart(run))}
+              sx={{ color: 'text.secondary' }}
+            >
               <UndoRoundedIcon />
             </IconButton>
           </>
@@ -305,7 +322,7 @@ export function Largada({ state, act, sync }: Props) {
                 p: 2,
                 borderRadius: radius.lg,
                 border: `2px solid ${tokens.start}`,
-                bgcolor: 'rgba(34, 197, 94, 0.06)',
+                bgcolor: tint(tokens.start, 0.06),
                 display: 'flex',
                 alignItems: 'center',
                 gap: 2,
@@ -381,7 +398,7 @@ export function Largada({ state, act, sync }: Props) {
                       py: 1.25,
                       minHeight: 60,
                       textAlign: 'left',
-                      bgcolor: isSel ? 'rgba(34, 197, 94, 0.08)' : 'transparent',
+                      bgcolor: isSel ? tint(tokens.start, 0.08) : 'transparent',
                       boxShadow: isSel ? `inset 4px 0 0 ${tokens.start}` : 'none',
                     }}
                   >
@@ -432,7 +449,7 @@ export function Largada({ state, act, sync }: Props) {
               right: 0,
               bottom: `calc(${BOTTOMNAV_H}px + env(safe-area-inset-bottom))`,
               zIndex: 9,
-              bgcolor: 'rgba(10, 10, 11, 0.94)',
+              bgcolor: tint(tokens.bg, 0.94),
               backdropFilter: 'blur(10px)',
               borderTop: `1px solid ${tokens.line}`,
               py: 1.25,
@@ -466,7 +483,7 @@ export function Largada({ state, act, sync }: Props) {
         slotProps={{
           paper: {
             sx: {
-              bgcolor: count === 'VAI!' ? '#063d1b' : '#000',
+              bgcolor: count === 'VAI!' ? tint(tokens.start, 0.25) : tokens.bg,
               border: 0,
               borderRadius: 0,
               transition: 'background-color 0.2s ease',
@@ -512,7 +529,7 @@ export function Largada({ state, act, sync }: Props) {
                 fontSize: count === 'VAI!' ? 'min(32vw, 10rem)' : 'min(52vw, 15rem)',
                 fontWeight: 900,
                 lineHeight: 1,
-                color: count === 'VAI!' ? '#4ade80' : tokens.brand,
+                color: count === 'VAI!' ? tokens.start : tokens.brand,
                 animation: 'pop 0.6s cubic-bezier(0.18, 0.89, 0.32, 1.28)',
               }}
             >
@@ -535,21 +552,6 @@ export function Largada({ state, act, sync }: Props) {
         )}
       </Dialog>
 
-      <ConfirmDialog
-        open={Boolean(undoTarget)}
-        onClose={() => setUndoTarget(null)}
-        icon={<UndoRoundedIcon />}
-        tone="warning"
-        title="Desfazer largada?"
-        confirmLabel="Desfazer"
-        onConfirm={() => {
-          const run = undoTarget
-          setUndoTarget(null)
-          if (run) void act(() => api.undoRun(run.id), `Largada do piloto #${run.num} desfeita`)
-        }}
-      >
-        A descida de #{undoTarget?.num} será apagada e o piloto volta para a fila.
-      </ConfirmDialog>
     </Box>
   )
 }
