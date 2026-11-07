@@ -25,7 +25,7 @@ const EVENT_KEY = 'mtb-event-v1'
 const ACCESS_KEY = 'mtb-access-v1'
 
 const OFFLINE_MSG = 'Sem conexão. Tente novamente quando houver sinal.'
-const SCHEMA_MSG = 'O banco precisa ser atualizado: rode supabase/schema.sql no Supabase.'
+const SCHEMA_MSG = 'O banco precisa ser atualizado: aplique as migrations (npm run db:push).'
 const DENIED_MSG = 'Sem permissão para enviar: entre de novo com o código do fiscal. As ações continuam guardadas.'
 const ANON_DISABLED_MSG = 'O login anônimo está desligado no Supabase. Ative em Authentication > Sign In / Providers > Allow anonymous sign-ins.'
 const REQUEST_TIMEOUT_MS = 8000
@@ -151,7 +151,7 @@ function classify(r: Resp): Outcome {
   if (r.error.code === 'MTB01') return 'wait'
   // Sessão expirada ou acesso revogado: guarda a ação até o fiscal entrar de novo
   if (r.error.code === 'MTB08') return 'denied'
-  // função inexistente: o schema.sql novo ainda não foi aplicado no banco
+  // função inexistente: o banco ainda não recebeu a migration nova
   if (r.error.code === 'PGRST202' || r.status === 404) return 'blocked'
   return 'rejected'
 }
@@ -281,7 +281,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     const r = await sb.from('events').select(EVENT_COLUMNS).order('starts_on', { ascending: false }).order('created_at', { ascending: false })
     if (r.error) {
       if (classify({ error: r.error, status: r.status }) === 'network') setOnline(false)
-      else warnSchema() // banco ainda sem eventos: rode o schema.sql novo
+      else warnSchema() // banco ainda sem eventos: faltam migrations
       return null
     }
     const list = ((r.data ?? []) as EventRow[]).map(toEvent)
@@ -461,7 +461,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
         } else if (outcome === 'blocked') {
           const retryAt = Date.now() + 30000
           queue.forEach((o) => (o.nextTry = retryAt))
-          notice('O banco precisa ser atualizado (rode supabase/schema.sql). As ações continuam guardadas.', true)
+          notice('O banco precisa ser atualizado (aplique as migrations com npm run db:push). As ações continuam guardadas.', true)
           break
         } else if (outcome === 'wait') {
           // Chegada recusada porque outro aparelho já fechou a descida: não adianta tentar de novo

@@ -1,5 +1,7 @@
 # Plano: vários eventos com códigos de fiscal e de público
 
+> Os passos "rode `supabase/schema.sql` no SQL Editor" abaixo são o registro de como cada etapa foi aplicada. Desde 29/10/2026 o banco é versionado em `supabase/migrations/` (o `schema.sql` virou a baseline) e mudanças novas são aplicadas com `npm run db:push`; veja o README.
+
 ## Objetivo
 
 Hoje o banco guarda uma prova só: pilotos, categorias, especiais, descidas e grade. O fiscal entra com um PIN conferido no navegador, e qualquer pessoa com o link consegue ler e escrever tudo.
