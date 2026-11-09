@@ -6,8 +6,12 @@ export type { StartGridItem } from '../types'
 import { BOTTOMNAV_H, tokens } from '../theme'
 import { BottomSheet, ChipSelect, ConfirmDialog, CountCards, EmptyState, FilterBar, ListCard, PageHeader, RiderPlate, Section } from './ui'
 import { StartGridList } from './StartGridList'
+import { ColorSwatches } from './ColorSwatches'
+import { ShareEvent } from './ShareAthlete'
+import { buildEnduroRanking } from '../lib/ranking'
 import { ImportCsv } from './ImportCsv'
 import { MarshalAccess } from './MarshalAccess'
+import { TvImages } from './TvImages'
 import { AthleteHistory, AthleteNameField } from './AthleteFields'
 import { athleteKey } from '../lib/athletes'
 import {
@@ -36,13 +40,15 @@ import PeopleAltRoundedIcon from '@mui/icons-material/PeopleAltRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import ScienceRoundedIcon from '@mui/icons-material/ScienceRounded'
 import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded'
+import EmojiEventsRoundedIcon from '@mui/icons-material/EmojiEventsRounded'
+import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
 
 interface Props {
   state: AppState
   act: Act
 }
 
-type SubTab = 'atletas' | 'categorias' | 'especiais' | 'grade' | 'acesso'
+type SubTab = 'atletas' | 'categorias' | 'especiais' | 'grade' | 'telao' | 'acesso'
 
 /** Cartões de contagem da aba Atletas. */
 type RiderFilter = 'todos' | 'largaram' | 'faltam' | 'semcat'
@@ -98,12 +104,13 @@ export function Pilotos({ state, act }: Props) {
   const [newCat, setNewCat] = useState('')
   const [search, setSearch] = useState('')
   const [riderFilter, setRiderFilter] = useState<RiderFilter>('todos')
+  const [rosterImage, setRosterImage] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const numInputRef = useRef<HTMLInputElement>(null)
 
   // Gerenciador de Especiais
   const [newStageName, setNewStageName] = useState('')
-  const [editingStage, setEditingStage] = useState<{ id: string; name: string } | null>(null)
+  const [editingStage, setEditingStage] = useState<{ id: string; name: string; km: string; color: string } | null>(null)
 
   // Grade de Ordem de Largada
   const [gridStageId, setGridStageId] = useState<string>(() => stages[0]?.id || 'stage-1')
@@ -231,6 +238,29 @@ export function Pilotos({ state, act }: Props) {
 
   const currentStageObj = stages.find((s) => s.id === activeGridStageId) || stages[0]
 
+  // Grade pela classificação geral: sai primeiro quem está fora da prova, depois quem completou menos
+  // especiais e o mais lento; o líder de cada categoria larga por último
+  const handleGridByStandings = () => {
+    if (selectedCategories.length === 0) {
+      return act(async () => {
+        throw new Error('Selecione pelo menos uma categoria para incluir na grade')
+      })
+    }
+    const keep = gridItems.filter(
+      (item) => (!item.stageId || item.stageId === activeGridStageId) && !selectedCategories.includes(item.category || 'Sem Categoria'),
+    )
+    const items: StartGridItem[] = []
+    categoryOrder.forEach((c) => {
+      if (!selectedCategories.includes(c)) return
+      const order = buildEnduroRanking(state, c, 'all').rows.map((r) => r.rider).reverse()
+      if (order.length > 0) items.push(...buildItemsForCategory(c, order, activeGridStageId))
+    })
+    void act(
+      () => api.setStageGrid(activeGridStageId, mergeCurrentStage([...keep, ...items])),
+      `Grade da ${currentStageObj?.name ?? 'especial'} pela classificação: o líder larga por último`,
+    )
+  }
+
   // Gerar ou atualizar grade com as categorias selecionadas para a especial ativa
   const handleGenerateGrid = () => {
     if (state.riders.length === 0) {
@@ -315,7 +345,7 @@ export function Pilotos({ state, act }: Props) {
     team: string
     athleteId?: string
   } | null>(null)
-  const [editingCategory, setEditingCategory] = useState<{ oldName: string; name: string } | null>(null)
+  const [editingCategory, setEditingCategory] = useState<{ oldName: string; name: string; color: string } | null>(null)
   const [deletingRider, setDeletingRider] = useState<Rider | null>(null)
   const [deletingCategory, setDeletingCategory] = useState<{ name: string; ridersCount: number } | null>(null)
   const [deletingStage, setDeletingStage] = useState<{ id: string; name: string; runsCount: number } | null>(null)
@@ -394,12 +424,18 @@ export function Pilotos({ state, act }: Props) {
     const oldName = editingCategory.oldName
     const newName = editingCategory.name.trim()
     if (!newName) return act(async () => { throw new Error('O nome da categoria não pode ser vazio') })
+    const color = editingCategory.color
+    const colorChanged = color !== (state.categoryColors?.[oldName] ?? '')
     if (oldName === newName) {
+      if (colorChanged) await act(() => api.setCategoryColor(oldName, color || null), `Cor de "${oldName}" salva`)
       setEditingCategory(null)
       return
     }
 
-    const ok = await act(() => api.updateCategory(oldName, newName), `Categoria renomeada para "${newName}"`)
+    const ok = await act(async () => {
+      await api.updateCategory(oldName, newName)
+      if (colorChanged || color) await api.setCategoryColor(newName, color || null)
+    }, `Categoria renomeada para "${newName}"`)
     if (ok) {
       setCategoryOrder((prev) => prev.map((c) => (c === oldName ? newName : c)))
       setSelectedCategories((prev) => prev.map((c) => (c === oldName ? newName : c)))
@@ -438,7 +474,15 @@ export function Pilotos({ state, act }: Props) {
     if (!editingStage) return
     const trimmed = editingStage.name.trim()
     if (!trimmed) return act(async () => { throw new Error('O nome da especial não pode ser vazio') })
-    const ok = await act(() => api.updateStage(editingStage.id, trimmed), `Especial renomeada para "${trimmed}"`)
+    const km = Number(editingStage.km.replace(',', '.'))
+    if (editingStage.km.trim() && !(km > 0)) return act(async () => { throw new Error('Distância inválida. Use km, ex.: 2,5') })
+    const ok = await act(async () => {
+      const before = stages.find((s) => s.id === editingStage.id)
+      if (before?.name !== trimmed) await api.updateStage(editingStage.id, trimmed)
+      if ((before?.km ?? 0) !== (km || 0) || (before?.color ?? '') !== editingStage.color) {
+        await api.updateStageInfo(editingStage.id, { km: km || null, color: editingStage.color || null })
+      }
+    }, `Especial "${trimmed}" salva`)
     if (ok) setEditingStage(null)
   }
 
@@ -505,6 +549,7 @@ export function Pilotos({ state, act }: Props) {
         <Tab value="categorias" label="Categorias" />
         <Tab value="especiais" label="Especiais" />
         <Tab value="grade" label="Grade" />
+        <Tab value="telao" label="Telão" />
         {api.mode === 'supabase' && <Tab value="acesso" label="Acesso" />}
       </Tabs>
 
@@ -572,6 +617,9 @@ export function Pilotos({ state, act }: Props) {
             <Button variant="outlined" color="inherit" startIcon={<UploadFileRoundedIcon />} onClick={() => setImportOpen(true)}>
               Importar planilha
             </Button>
+            <Button variant="outlined" color="inherit" startIcon={<ImageRoundedIcon />} onClick={() => setRosterImage(true)} disabled={riders.length === 0}>
+              Imagem dos inscritos
+            </Button>
             {/* Dados de teste: atletas de exemplo para preencher a prova e testar */}
             <Button
               variant="outlined"
@@ -619,7 +667,8 @@ export function Pilotos({ state, act }: Props) {
                   key={c}
                   title={c}
                   subtitle={`${count} ${count === 1 ? 'atleta' : 'atletas'}`}
-                  onEdit={() => setEditingCategory({ oldName: c, name: c })}
+                  lead={<Box sx={{ width: 6, alignSelf: 'stretch', bgcolor: state.categoryColors?.[c] ?? 'transparent', borderRadius: 1 }} />}
+                  onEdit={() => setEditingCategory({ oldName: c, name: c, color: state.categoryColors?.[c] ?? '' })}
                   onDelete={() => setDeletingCategory({ name: c, ridersCount: count })}
                   editLabel={`Renomear ${c}`}
                   deleteLabel={`Excluir ${c}`}
@@ -645,10 +694,15 @@ export function Pilotos({ state, act }: Props) {
               return (
                 <ManageRow
                   key={st.id}
-                  lead={<RiderPlate num={String(st.order)} size="sm" tone="start" />}
+                  lead={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                      <Box sx={{ width: 6, height: 28, bgcolor: st.color ?? 'transparent', borderRadius: 1 }} />
+                      <RiderPlate num={String(st.order)} size="sm" tone="start" />
+                    </Box>
+                  }
                   title={st.name}
-                  subtitle={`${runsCount} ${runsCount === 1 ? 'descida concluída' : 'descidas concluídas'}`}
-                  onEdit={() => setEditingStage({ id: st.id, name: st.name })}
+                  subtitle={`${st.km ? `${st.km.toLocaleString('pt-BR')} km · ` : ''}${runsCount} ${runsCount === 1 ? 'descida concluída' : 'descidas concluídas'}`}
+                  onEdit={() => setEditingStage({ id: st.id, name: st.name, km: st.km ? String(st.km).replace('.', ',') : '', color: st.color ?? '' })}
                   onDelete={() => setDeletingStage({ id: st.id, name: st.name, runsCount })}
                   editLabel={`Renomear ${st.name}`}
                   deleteLabel={`Excluir ${st.name}`}
@@ -774,6 +828,9 @@ export function Pilotos({ state, act }: Props) {
           <Button variant="contained" size="large" startIcon={<ShuffleRoundedIcon />} onClick={handleGenerateGrid}>
             {stageGrid.length > 0 ? 'Sortear de novo' : 'Gerar grade'} · {currentStageObj?.name ?? 'Especial'}
           </Button>
+          <Button variant="outlined" color="inherit" size="large" startIcon={<EmojiEventsRoundedIcon />} onClick={handleGridByStandings} disabled={state.runs.length === 0}>
+            Pela classificação (líder por último)
+          </Button>
 
           {stageGrid.length > 0 && (
             <Section
@@ -800,6 +857,7 @@ export function Pilotos({ state, act }: Props) {
         </>
       )}
 
+      {tab === 'telao' && <TvImages state={state} act={act} />}
       {tab === 'acesso' && <MarshalAccess state={state} act={act} />}
 
       {/* ============ PAINÉIS E CONFIRMAÇÕES ============ */}
@@ -879,15 +937,16 @@ export function Pilotos({ state, act }: Props) {
         )}
       </BottomSheet>
 
-      <BottomSheet open={Boolean(editingCategory)} onClose={() => setEditingCategory(null)} title="Renomear categoria">
+      <BottomSheet open={Boolean(editingCategory)} onClose={() => setEditingCategory(null)} title="Editar categoria">
         {editingCategory && (
           <Box component="form" onSubmit={(e) => void saveEditCategory(e)} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <TextField label="Nome" value={editingCategory.name} onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })} fullWidth required autoFocus />
-            {state.riders.some((r) => r.cat === editingCategory.oldName) && (
+            {state.riders.some((r) => r.cat === editingCategory.oldName) && editingCategory.name.trim() !== editingCategory.oldName && (
               <Typography variant="body2" color="text.secondary">
                 {state.riders.filter((r) => r.cat === editingCategory.oldName).length} atleta(s) desta categoria serão atualizados.
               </Typography>
             )}
+            <ColorSwatches label="Cor da categoria" value={editingCategory.color} onChange={(color) => setEditingCategory({ ...editingCategory, color })} />
             <Button type="submit" variant="contained" size="large">
               Salvar
             </Button>
@@ -895,10 +954,18 @@ export function Pilotos({ state, act }: Props) {
         )}
       </BottomSheet>
 
-      <BottomSheet open={Boolean(editingStage)} onClose={() => setEditingStage(null)} title="Renomear especial">
+      <BottomSheet open={Boolean(editingStage)} onClose={() => setEditingStage(null)} title="Editar especial">
         {editingStage && (
           <Box component="form" onSubmit={(e) => void saveEditStage(e)} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <TextField label="Nome" value={editingStage.name} onChange={(e) => setEditingStage({ ...editingStage, name: e.target.value })} fullWidth required autoFocus />
+            <TextField
+              label="Distância (km)"
+              value={editingStage.km}
+              onChange={(e) => setEditingStage({ ...editingStage, km: e.target.value.replace(/[^0-9.,]/g, '').slice(0, 6) })}
+              helperText="Opcional. Mostra a velocidade média de cada descida."
+              slotProps={{ htmlInput: { inputMode: 'decimal' } }}
+            />
+            <ColorSwatches label="Cor da especial" value={editingStage.color} onChange={(color) => setEditingStage({ ...editingStage, color })} />
             <Button type="submit" variant="contained" size="large">
               Salvar
             </Button>
@@ -971,6 +1038,7 @@ export function Pilotos({ state, act }: Props) {
       >
         A ordem de largada sorteada será descartada.
       </ConfirmDialog>
+      {rosterImage && <ShareEvent state={state} kind="roster" open onClose={() => setRosterImage(false)} />}
     </Box>
   )
 }

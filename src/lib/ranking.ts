@@ -1,12 +1,18 @@
-import type { AppState, Rider, Stage } from '../types'
+import type { AppState, OutStatus, Rider, Stage } from '../types'
+import { isOut, runTime } from './runs'
 
 export interface StagePerformance {
   stageId: string
   stageName: string
+  /** Tempo que vale (já com a penalidade). */
   time: number | null
-  status: 'done' | 'dnf' | 'track' | 'none'
+  status: 'done' | OutStatus | 'track' | 'none'
   stageGap: number | null
   stageRank: number | null
+  /** Penalidade incluída no tempo (ms). */
+  penaltyMs: number
+  /** Descida que gerou este resultado (para corrigir pela matriz). */
+  runId?: string
 }
 
 export interface EnduroRankRow {
@@ -16,9 +22,16 @@ export interface EnduroRankRow {
   totalStagesCount: number
   totalTime: number
   totalGap: number
+  /** Fora da classificação geral por DNF, DNS ou DSQ em alguma especial. */
   hasDnf: boolean
+  /** Qual situação tirou o atleta (DSQ pesa mais que DNF, que pesa mais que DNS). */
+  outStatus?: OutStatus
   isCompletedAll: boolean
 }
+
+const outWeight: Record<OutStatus, number> = { dsq: 3, dnf: 2, dns: 1 }
+
+type StageResult = { time: number; status: StagePerformance['status']; penaltyMs: number; runId: string }
 
 export function buildEnduroRanking(
   state: AppState,
@@ -28,99 +41,70 @@ export function buildEnduroRanking(
   const stages = state.stages && state.stages.length > 0 ? state.stages : []
   const filteredRiders = state.riders.filter((r) => category === 'Todas' || r.cat === category)
 
-  // 1. Mapeia as melhores descidas de cada piloto em cada especial
-  // (caso haja repetição ou reinício, considera o melhor tempo concluído na especial)
-  const riderStageRuns = new Map<string, Map<string, { time: number; status: 'done' | 'dnf' | 'track' }>>()
+  // 1. Resultado de cada piloto em cada especial
+  // (havendo mais de uma descida, vale o melhor tempo concluído; uma decisão como DSQ vale sobre ele)
+  const riderStageRuns = new Map<string, Map<string, StageResult>>()
 
   for (const run of state.runs) {
     const stageId = run.stageId || stages[0]?.id || 'stage-1'
-    if (!riderStageRuns.has(run.num)) {
-      riderStageRuns.set(run.num, new Map())
-    }
+    if (!riderStageRuns.has(run.num)) riderStageRuns.set(run.num, new Map())
     const stageMap = riderStageRuns.get(run.num)!
+    const current = stageMap.get(stageId)
 
-    if (run.status === 'done' && run.end != null) {
-      const time = run.end - run.start
-      const current = stageMap.get(stageId)
-      if (!current || current.status !== 'done' || time < current.time) {
-        stageMap.set(stageId, { time, status: 'done' })
+    if (run.status === 'done') {
+      const time = runTime(run) ?? 0
+      if (!current || current.status === 'track' || current.status === 'none' || (current.status === 'done' && time < current.time)) {
+        stageMap.set(stageId, { time, status: 'done', penaltyMs: run.penaltyMs ?? 0, runId: run.id })
       }
-    } else if (run.status === 'dnf') {
-      if (!stageMap.has(stageId) || stageMap.get(stageId)?.status !== 'done') {
-        stageMap.set(stageId, { time: 0, status: 'dnf' })
+    } else if (isOut(run.status)) {
+      // DSQ vale mesmo com um tempo concluído; DNF/DNS só quando não há tempo
+      if (!current || current.status === 'track' || (run.status === 'dsq' && current.status !== 'dsq') || (current.status !== 'done' && !isOut(current.status))) {
+        stageMap.set(stageId, { time: 0, status: run.status, penaltyMs: 0, runId: run.id })
       }
-    } else if (run.status === 'track') {
-      if (!stageMap.has(stageId)) {
-        stageMap.set(stageId, { time: 0, status: 'track' })
-      }
+    } else if (run.status === 'track' && !current) {
+      stageMap.set(stageId, { time: 0, status: 'track', penaltyMs: 0, runId: run.id })
     }
   }
 
-  // 2. Determina o melhor tempo de cada especial entre os pilotos filtrados (para calcular stageGap e stageRank)
+  // 2. Melhor tempo de cada especial entre os pilotos filtrados (diferença e posição)
   const bestTimesByStage: Record<string, number> = {}
   stages.forEach((st) => {
     let minTime = Infinity
     filteredRiders.forEach((r) => {
-      const runInfo = riderStageRuns.get(r.num)?.get(st.id)
-      if (runInfo && runInfo.status === 'done' && runInfo.time < minTime) {
-        minTime = runInfo.time
-      }
+      const info = riderStageRuns.get(r.num)?.get(st.id)
+      if (info && info.status === 'done' && info.time < minTime) minTime = info.time
     })
-    if (minTime !== Infinity) {
-      bestTimesByStage[st.id] = minTime
-    }
+    if (minTime !== Infinity) bestTimesByStage[st.id] = minTime
   })
 
-  // 3. Monta as linhas completas de cada atleta
+  // 3. Linha de cada atleta
   const rows: EnduroRankRow[] = filteredRiders.map((rider) => {
-    const stageMap = riderStageRuns.get(rider.num) || new Map()
+    const stageMap = riderStageRuns.get(rider.num) || new Map<string, StageResult>()
     const stagePerformances: Record<string, StagePerformance> = {}
     let totalTime = 0
     let completedCount = 0
-    let hasDnf = false
+    let outStatus: OutStatus | undefined
 
     stages.forEach((st) => {
-      const runInfo = stageMap.get(st.id)
-      if (!runInfo) {
-        stagePerformances[st.id] = {
-          stageId: st.id,
-          stageName: st.name,
-          time: null,
-          status: 'none',
-          stageGap: null,
-          stageRank: null,
-        }
-      } else if (runInfo.status === 'done') {
+      const info = stageMap.get(st.id)
+      const base = { stageId: st.id, stageName: st.name, stageGap: null, stageRank: null, penaltyMs: 0 }
+      if (!info) {
+        stagePerformances[st.id] = { ...base, time: null, status: 'none' }
+      } else if (info.status === 'done') {
         completedCount += 1
-        totalTime += runInfo.time
-        const bestTime = bestTimesByStage[st.id]
+        totalTime += info.time
+        const best = bestTimesByStage[st.id]
         stagePerformances[st.id] = {
-          stageId: st.id,
-          stageName: st.name,
-          time: runInfo.time,
+          ...base,
+          time: info.time,
           status: 'done',
-          stageGap: bestTime != null ? runInfo.time - bestTime : 0,
-          stageRank: null,
-        }
-      } else if (runInfo.status === 'dnf') {
-        hasDnf = true
-        stagePerformances[st.id] = {
-          stageId: st.id,
-          stageName: st.name,
-          time: null,
-          status: 'dnf',
-          stageGap: null,
-          stageRank: null,
+          stageGap: best != null ? info.time - best : 0,
+          penaltyMs: info.penaltyMs,
+          runId: info.runId,
         }
       } else {
-        stagePerformances[st.id] = {
-          stageId: st.id,
-          stageName: st.name,
-          time: null,
-          status: 'track',
-          stageGap: null,
-          stageRank: null,
-        }
+        if (isOut(info.status) && (!outStatus || outWeight[info.status] > outWeight[outStatus])) outStatus = info.status
+        stagePerformances[st.id] = { ...base, time: null, status: info.status, runId: info.runId }
       }
     })
 
@@ -131,43 +115,39 @@ export function buildEnduroRanking(
       totalStagesCount: stages.length,
       totalTime,
       totalGap: 0,
-      hasDnf,
-      isCompletedAll: completedCount === stages.length && stages.length > 0 && !hasDnf,
+      hasDnf: Boolean(outStatus),
+      outStatus,
+      isCompletedAll: completedCount === stages.length && stages.length > 0 && !outStatus,
     }
   })
 
-  // 4. Calcula stageRank em cada especial
+  // 4. Posição em cada especial
   stages.forEach((st) => {
-    const sortedForStage = [...rows]
+    rows
       .filter((r) => r.stagePerformances[st.id]?.status === 'done')
       .sort((a, b) => (a.stagePerformances[st.id].time ?? 0) - (b.stagePerformances[st.id].time ?? 0))
-
-    sortedForStage.forEach((r, rankIdx) => {
-      r.stagePerformances[st.id].stageRank = rankIdx + 1
-    })
+      .forEach((r, i) => {
+        r.stagePerformances[st.id].stageRank = i + 1
+      })
   })
 
-  // 5. Ordenação:
-  // Se for uma especial específica selecionada: ordena pelo tempo dessa especial!
+  // 5. Ordenação
   if (selectedStageId !== 'all') {
+    // Uma especial: pelo tempo nela; quem ficou fora (DNF/DNS/DSQ) depois de quem não largou
     rows.sort((a, b) => {
       const aPerf = a.stagePerformances[selectedStageId]
       const bPerf = b.stagePerformances[selectedStageId]
       const aDone = aPerf?.status === 'done'
       const bDone = bPerf?.status === 'done'
-
       if (aDone && bDone) return (aPerf.time ?? 0) - (bPerf.time ?? 0)
       if (aDone) return -1
       if (bDone) return 1
-      if (aPerf?.status === 'dnf' && bPerf?.status !== 'dnf') return 1
-      if (bPerf?.status === 'dnf' && aPerf?.status !== 'dnf') return -1
+      if (isOut(aPerf?.status) && !isOut(bPerf?.status)) return 1
+      if (isOut(bPerf?.status) && !isOut(aPerf?.status)) return -1
       return Number(a.rider.num) - Number(b.rider.num)
     })
   } else {
-    // Geral Acumulado (Enduro Overall):
-    // 1º: Quem completou todas as especiais
-    // 2º: Maior número de especiais completadas
-    // 3º: Menor tempo total acumulado
+    // Geral: quem completou mais especiais, depois o menor tempo somado; fora da prova por último
     rows.sort((a, b) => {
       if (a.hasDnf && !b.hasDnf) return 1
       if (!a.hasDnf && b.hasDnf) return -1
@@ -177,13 +157,11 @@ export function buildEnduroRanking(
     })
   }
 
-  // 6. Calcula o totalGap em relação ao líder
+  // 6. Diferença para o líder
   const leaderTotalTime = rows.find((r) => r.completedCount > 0 && !r.hasDnf)?.totalTime
   if (leaderTotalTime != null) {
     rows.forEach((r) => {
-      if (r.completedCount > 0 && !r.hasDnf) {
-        r.totalGap = r.totalTime - leaderTotalTime
-      }
+      if (r.completedCount > 0 && !r.hasDnf) r.totalGap = r.totalTime - leaderTotalTime
     })
   }
 

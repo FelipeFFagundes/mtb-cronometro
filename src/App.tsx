@@ -19,7 +19,15 @@ import { EventsAdmin } from './components/EventsAdmin'
 import { isSoundEnabled, playCountdownTick, setSoundEnabled, unlockAudio } from './lib/sound'
 import { BOTTOMNAV_H, PALETTE_INFO, TOPBAR_H, artSx, display, logoSx, paletteId, radius, tokens } from './theme'
 import { ThemePicker } from './components/ThemePicker'
+import { OperatorName } from './components/OperatorName'
+import { LogSheet } from './components/LogSheet'
+import { getOperator } from './lib/operator'
+import { useWakeLock } from './hooks/useWakeLock'
+import { versionText } from './lib/version'
+import { ShortcutsHelp } from './components/ShortcutsHelp'
 import { TvMode } from './components/TvMode'
+import { TvPairing } from './components/TvPairing'
+import { AthletePage } from './components/AthletePage'
 import type { SyncStatus } from './types'
 import {
   AppBar,
@@ -37,6 +45,7 @@ import {
   BottomNavigation,
   BottomNavigationAction,
   Snackbar,
+  TextField,
   Alert,
 } from '@mui/material'
 import TrafficRoundedIcon from '@mui/icons-material/TrafficRounded'
@@ -53,6 +62,8 @@ import ScienceRoundedIcon from '@mui/icons-material/ScienceRounded'
 import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded'
 import TimerOffRoundedIcon from '@mui/icons-material/TimerOffRounded'
 import PaletteRoundedIcon from '@mui/icons-material/PaletteRounded'
+import BadgeRoundedIcon from '@mui/icons-material/BadgeRounded'
+import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded'
 import TvRoundedIcon from '@mui/icons-material/TvRounded'
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import VolumeUpRoundedIcon from '@mui/icons-material/VolumeUpRounded'
@@ -187,6 +198,12 @@ export default function App() {
   useBackClose(Boolean(menuAnchor), () => setMenuAnchor(null))
   const [soundOn, setSoundOn] = useState(isSoundEnabled)
   const [themeOpen, setThemeOpen] = useState(false)
+  const [operator, setOperatorState] = useState(getOperator)
+  const [operatorOpen, setOperatorOpen] = useState(false)
+  const [logOpen, setLogOpen] = useState(false)
+  // Apagar descidas: todas, ou só de uma especial e/ou categoria (reiniciar uma especial)
+  const [clearStage, setClearStage] = useState('all')
+  const [clearCat, setClearCat] = useState('all')
 
   const toggleSound = () => {
     const next = !soundOn
@@ -310,10 +327,16 @@ export default function App() {
     setConfirmData(null)
     if (kind === 'demo') void act(() => api.loadDemo(), 'Dados de exemplo carregados')
     if (kind === 'reset') void act(() => api.reset(), 'Todos os pilotos e tempos foram apagados')
-    if (kind === 'runs') void act(() => api.clearRuns(), 'Todas as descidas foram apagadas. Os pilotos continuam.')
+    if (kind === 'runs') {
+      const filter = { stageId: clearStage === 'all' ? undefined : clearStage, category: clearCat === 'all' ? undefined : clearCat }
+      void act(() => api.clearRuns(filter), `${runsCount} ${runsCount === 1 ? 'descida apagada' : 'descidas apagadas'}. Os pilotos continuam.`)
+    }
   }
 
-  const runsCount = state.runs.length
+  const catOf = (num: string) => state.riders.find((r) => r.num === num)?.cat
+  const runsCount = state.runs.filter(
+    (r) => (clearStage === 'all' || r.stageId === clearStage) && (clearCat === 'all' || catOf(r.num) === clearCat),
+  ).length
   const confirmTexts: Record<ConfirmKind, { title: string; label: string; text: string }> = {
     demo: {
       title: 'Carregar dados de exemplo?',
@@ -321,10 +344,10 @@ export default function App() {
       text: 'As descidas registradas serão apagadas e os pilotos de exemplo serão adicionados.',
     },
     runs: {
-      title: 'Apagar todas as descidas?',
-      label: 'Apagar descidas',
+      title: 'Apagar descidas?',
+      label: runsCount > 0 ? `Apagar ${runsCount}` : 'Nada para apagar',
       text:
-        `${runsCount === 1 ? 'A descida registrada' : `As ${runsCount} descidas registradas`} neste evento ${runsCount === 1 ? 'será apagada' : 'serão apagadas'} ` +
+        `${runsCount === 1 ? 'A descida escolhida' : `As ${runsCount} descidas escolhidas`} ${runsCount === 1 ? 'será apagada' : 'serão apagadas'} ` +
         'para todos os aparelhos. Pilotos, categorias, especiais e grade continuam. Exporte os resultados antes se quiser guardar. Não dá para desfazer.',
     },
     reset: {
@@ -336,6 +359,8 @@ export default function App() {
 
   const inEvent = route.name === 'event'
   const isAdmin = inEvent && route.fiscal && canOperate
+  // Fiscal com o celular na mão: a tela não apaga entre uma largada e outra
+  useWakeLock(isAdmin)
   // Fiscal não cadastra: a aba Prova é só do organizador
   // Fiscal simplificado: só Largada e Chegada
   const simpleMode = route.name === 'event' && Boolean(route.simple)
@@ -345,6 +370,9 @@ export default function App() {
       : adminTab === 'pilotos' && !isOrganizer
         ? 'largada'
         : adminTab
+
+  // TV pareada por código: o organizador escolhe o evento e o que ela mostra
+  if (route.name === 'tvpair') return <TvPairing state={state} sync={sync} loading={loading} />
 
   // Modo TV: tela cheia, sem barras nem login; o evento vem do código do link
   if (route.name === 'event' && route.tv && !loading && route.code === eventCode) {
@@ -458,6 +486,32 @@ export default function App() {
                 <MenuItem
                   onClick={() => {
                     setMenuAnchor(null)
+                    afterHistorySettles(() => setOperatorOpen(true))
+                  }}
+                  sx={{ minHeight: 48 }}
+                >
+                  <ListItemIcon>
+                    <BadgeRoundedIcon fontSize="small" />
+                  </ListItemIcon>
+                  {operator ? `Fiscal: ${operator}` : 'Identificar-se (nome do fiscal)'}
+                </MenuItem>
+                {isOrganizer && (
+                  <MenuItem
+                    onClick={() => {
+                      setMenuAnchor(null)
+                      afterHistorySettles(() => setLogOpen(true))
+                    }}
+                    sx={{ minHeight: 48 }}
+                  >
+                    <ListItemIcon>
+                      <HistoryRoundedIcon fontSize="small" />
+                    </ListItemIcon>
+                    Histórico de alterações
+                  </MenuItem>
+                )}
+                <MenuItem
+                  onClick={() => {
+                    setMenuAnchor(null)
                     afterHistorySettles(() => setThemeOpen(true))
                   }}
                   sx={{ minHeight: 48 }}
@@ -497,15 +551,17 @@ export default function App() {
                   <MenuItem
                     onClick={() => {
                       setMenuAnchor(null)
+                      setClearStage('all')
+                      setClearCat('all')
                       setConfirmData('runs')
                     }}
-                    disabled={runsCount === 0}
+                    disabled={state.runs.length === 0}
                     sx={{ minHeight: 48, color: 'error.main' }}
                   >
                     <ListItemIcon sx={{ color: 'inherit' }}>
                       <TimerOffRoundedIcon fontSize="small" />
                     </ListItemIcon>
-                    Apagar todas as descidas
+                    Apagar descidas
                   </MenuItem>
                 )}
                 {isOrganizer && (
@@ -529,6 +585,9 @@ export default function App() {
                   </ListItemIcon>
                   {isOrganizer && access.email ? `Sair (${access.email})` : 'Sair do modo fiscal'}
                 </MenuItem>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 2, pt: 1, pb: 0.5 }}>
+                  {versionText()} · tecla ? mostra os atalhos
+                </Typography>
               </Menu>
             </>
           ) : (
@@ -584,6 +643,7 @@ export default function App() {
             onOrganizer={goOrganizer}
             onHelp={() => navigate({ name: 'help' })}
             onTheme={() => setThemeOpen(true)}
+            onTv={() => navigate({ name: 'tvpair' })}
           />
         ) : route.name === 'help' ? (
           <Help role={access.role} />
@@ -623,12 +683,16 @@ export default function App() {
         ) : route.code && route.code !== eventCode ? (
           <PageSkeleton />
         ) : !isAdmin ? (
-          <PublicView state={state} tab={publicTab} sync={sync} />
+          route.name === 'event' && route.athlete ? (
+            <AthletePage state={state} num={route.athlete} onBack={() => (history.length > 1 ? history.back() : openEvent(route.code, false))} />
+          ) : (
+            <PublicView state={state} tab={publicTab} sync={sync} onOpenAthlete={(num) => navigate({ name: 'event', code: eventCode, fiscal: false, athlete: num })} />
+          )
         ) : (
           <>
             {activeTab === 'largada' && <Largada state={state} act={act} sync={sync} />}
             {activeTab === 'chegada' && <Chegada state={state} act={act} sync={sync} />}
-            {activeTab === 'ranking' && <Ranking state={state} sync={sync} />}
+            {activeTab === 'ranking' && <Ranking state={state} sync={sync} act={act} canEdit={isOrganizer} onOpenAthlete={(num) => navigate({ name: 'event', code: eventCode, fiscal: false, athlete: num })} />}
             {activeTab === 'pilotos' && <Pilotos state={state} act={act} />}
           </>
         )}
@@ -677,9 +741,34 @@ export default function App() {
         tone={confirmKind === 'demo' ? 'warning' : 'error'}
         title={confirmTexts[confirmKind].title}
         confirmLabel={confirmTexts[confirmKind].label}
+        confirmDisabled={confirmKind === 'runs' && runsCount === 0}
       >
+        {confirmKind === 'runs' && (
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1.5 }}>
+            <TextField select size="small" label="Especial" value={clearStage} onChange={(e) => setClearStage(e.target.value)} slotProps={{ select: { native: true } }}>
+              <option value="all">Todas</option>
+              {state.stages.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </TextField>
+            <TextField select size="small" label="Categoria" value={clearCat} onChange={(e) => setClearCat(e.target.value)} slotProps={{ select: { native: true } }}>
+              <option value="all">Todas</option>
+              {state.categories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </TextField>
+          </Box>
+        )}
         {confirmTexts[confirmKind].text}
       </ConfirmDialog>
+
+      <ShortcutsHelp enabled={isAdmin} />
+      <OperatorName open={operatorOpen} onClose={() => setOperatorOpen(false)} onSaved={setOperatorState} />
+      <LogSheet open={logOpen} onClose={() => setLogOpen(false)} state={state} />
 
       <ThemePicker open={themeOpen} onClose={() => setThemeOpen(false)} />
 

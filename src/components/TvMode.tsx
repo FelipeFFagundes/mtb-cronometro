@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import type { AppState, SyncStatus } from '../types'
+import type { AppState, SyncStatus, TvImage, TvPanel } from '../types'
 import { DEFAULT_STAGES } from '../types'
 import { buildEnduroRanking, type EnduroRankRow } from '../lib/ranking'
 import { fmt } from '../lib/time'
 import { useNow } from '../hooks/useNow'
+import { useWakeLock } from '../hooks/useWakeLock'
 import { display, logoSx, radius, tabular, tokens } from '../theme'
 import { LiveTimer } from './LiveTimer'
 import { TrackProgress } from './TrackProgress'
@@ -38,25 +39,6 @@ function useStageScale() {
   return scale
 }
 
-/** Mantém a tela da TV acesa enquanto o modo TV está aberto (onde o navegador permite). */
-function useWakeLock() {
-  useEffect(() => {
-    type Lock = { release: () => Promise<void> }
-    const wl = (navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<Lock> } }).wakeLock
-    if (!wl) return
-    let lock: Lock | null = null
-    const request = () => {
-      if (document.visibilityState === 'visible') void wl.request('screen').then((l) => (lock = l)).catch(() => undefined)
-    }
-    request()
-    document.addEventListener('visibilitychange', request)
-    return () => {
-      document.removeEventListener('visibilitychange', request)
-      void lock?.release().catch(() => undefined)
-    }
-  }, [])
-}
-
 function Panel({ title, right, children, grow = false }: { title: string; right?: ReactNode; children: ReactNode; grow?: boolean }) {
   return (
     <Box
@@ -87,9 +69,51 @@ function Clock() {
   return <>{new Date(now).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</>
 }
 
-export function TvMode({ state, sync, onExit }: { state: AppState; sync: SyncStatus; onExit: () => void }) {
+const ALL_PANELS: TvPanel[] = ['track', 'progress', 'standings']
+
+interface Props {
+  state: AppState
+  sync: SyncStatus
+  /** Sem esta função (TV pareada), não há botão de sair. */
+  onExit?: () => void
+  /** O que a TV mostra (padrão: na pista, progresso e classificação). */
+  panels?: TvPanel[]
+  /** Escala em % sobre o encaixe automático (TVs que mostram tudo grande ou pequeno demais). */
+  zoom?: number
+  images?: TvImage[]
+}
+
+/** Imagens do telão em rodízio; o índice vem do relógio, então todas as TVs trocam juntas. */
+function ImageRotation({ images, seconds }: { images: TvImage[]; seconds: number }) {
+  const now = useNow(1000)
+  if (images.length === 0) return <Typography sx={{ color: tokens.muted, fontSize: '1.6rem', textAlign: 'center', mt: 6 }}>Nenhuma imagem enviada.</Typography>
+  const idx = Math.floor(now / 1000 / seconds) % images.length
+  return (
+    <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
+      {images.map((img, i) => (
+        <Box
+          key={img.id}
+          component="img"
+          src={img.url}
+          alt=""
+          sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', opacity: i === idx ? 1 : 0, transition: 'opacity 0.8s' }}
+        />
+      ))}
+    </Box>
+  )
+}
+
+export function TvMode({ state, sync, onExit, panels = ALL_PANELS, zoom = 100, images = [] }: Props) {
   useWakeLock()
-  const scale = useStageScale()
+  // Zoom manual: o palco "virtual" encolhe e é ampliado para caber, então tudo fica maior (ou menor)
+  const z = Math.min(1.5, Math.max(0.5, zoom / 100))
+  const scale = useStageScale() * z
+  const showTrack = panels.includes('track')
+  const showProgress = panels.includes('progress')
+  const showStandings = panels.includes('standings')
+  const showImages = panels.includes('images')
+  const showLeft = showTrack || showProgress
+  const showRight = showStandings || showImages
   const stages = state.stages.length > 0 ? state.stages : DEFAULT_STAGES
   const onTrack = state.runs.filter((r) => r.status === 'track').sort((a, b) => a.start - b.start)
 
@@ -119,8 +143,8 @@ export function TvMode({ state, sync, onExit }: { state: AppState; sync: SyncSta
           position: 'absolute',
           left: '50%',
           top: '50%',
-          width: STAGE_W,
-          height: STAGE_H,
+          width: STAGE_W / z,
+          height: STAGE_H / z,
           transform: `translate(-50%, -50%) scale(${scale})`,
           display: 'flex',
           flexDirection: 'column',
@@ -143,7 +167,7 @@ export function TvMode({ state, sync, onExit }: { state: AppState; sync: SyncSta
           <Typography sx={{ ...tabular, fontWeight: 800, fontSize: '3.4rem', lineHeight: 1 }}>
             <Clock />
           </Typography>
-          {!isFull && (
+          {!isFull && onExit && (
             <Box sx={{ display: 'flex', gap: 1 }}>
               <Button
                 variant="outlined"
@@ -161,100 +185,122 @@ export function TvMode({ state, sync, onExit }: { state: AppState; sync: SyncSta
           )}
         </Box>
 
-        <Box sx={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1.15fr 1fr', gap: 2.5 }}>
+        <Box sx={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: showLeft && showRight ? '1.15fr 1fr' : '1fr', gap: 2.5 }}>
           {/* Esquerda: quem está descendo e onde deve estar */}
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, minHeight: 0 }}>
-            <Panel
-              title="Na pista"
-              grow
-              right={
-                <Typography sx={{ ...display, fontWeight: 800, fontSize: '1.6rem', color: onTrack.length ? tokens.finish : tokens.muted }}>
-                  {onTrack.length ? `${onTrack.length} ao vivo` : 'pista livre'}
-                </Typography>
-              }
-            >
-              {onTrack.length === 0 ? (
-                <Typography sx={{ color: tokens.muted, fontSize: '1.6rem', textAlign: 'center', mt: 6 }}>
-                  Os tempos aparecem aqui assim que a próxima largada acontecer.
-                </Typography>
-              ) : (
-                <Box sx={{ display: 'grid', gridTemplateColumns: onTrack.length > 3 ? '1fr 1fr' : '1fr', gap: 1.5 }}>
-                  {onTrack.slice(0, 8).map((run) => {
-                    const rider = state.riders.find((r) => r.num === run.num)
-                    const stage = stages.find((s) => s.id === run.stageId)
-                    return (
-                      <Box
-                        key={run.id}
-                        sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 1.5, bgcolor: tokens.raised, borderRadius: radius.md, minWidth: 0 }}
-                      >
-                        <RiderPlate num={run.num} size="lg" />
-                        <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography noWrap sx={{ fontWeight: 800, fontSize: '1.7rem', lineHeight: 1.15 }}>
-                            {rider?.name ?? `Piloto #${run.num}`}
-                          </Typography>
-                          <Typography noWrap sx={{ color: tokens.muted, fontSize: '1.15rem' }}>
-                            {[rider?.cat, stage?.name].filter(Boolean).join(' · ')}
-                          </Typography>
-                        </Box>
-                        <Typography sx={{ ...tabular, fontWeight: 900, fontSize: onTrack.length > 3 ? '2.4rem' : '3.2rem', lineHeight: 1 }}>
-                          <LiveTimer start={run.start} />
-                        </Typography>
-                      </Box>
-                    )
-                  })}
-                  {onTrack.length > 8 && (
-                    <Typography sx={{ color: tokens.muted, fontSize: '1.3rem' }}>+ {onTrack.length - 8} na pista</Typography>
+          {showLeft && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, minHeight: 0 }}>
+              {showTrack && (
+                <Panel
+                  title="Na pista"
+                  grow
+                  right={
+                    <Typography sx={{ ...display, fontWeight: 800, fontSize: '1.6rem', color: onTrack.length ? tokens.finish : tokens.muted }}>
+                      {onTrack.length ? `${onTrack.length} ao vivo` : 'pista livre'}
+                    </Typography>
+                  }
+                >
+                  {onTrack.length === 0 ? (
+                    <Typography sx={{ color: tokens.muted, fontSize: '1.6rem', textAlign: 'center', mt: 6 }}>
+                      Os tempos aparecem aqui assim que a próxima largada acontecer.
+                    </Typography>
+                  ) : (
+                    <Box sx={{ display: 'grid', gridTemplateColumns: onTrack.length > 3 ? '1fr 1fr' : '1fr', gap: 1.5 }}>
+                      {onTrack.slice(0, 8).map((run) => {
+                        const rider = state.riders.find((r) => r.num === run.num)
+                        const stage = stages.find((s) => s.id === run.stageId)
+                        return (
+                          <Box
+                            key={run.id}
+                            sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 1.5, bgcolor: tokens.raised, borderRadius: radius.md, minWidth: 0 }}
+                          >
+                            <RiderPlate num={run.num} size="lg" />
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Typography noWrap sx={{ fontWeight: 800, fontSize: '1.7rem', lineHeight: 1.15 }}>
+                                {rider?.name ?? `Piloto #${run.num}`}
+                              </Typography>
+                              <Typography noWrap sx={{ color: tokens.muted, fontSize: '1.15rem' }}>
+                                {[rider?.cat, stage?.name].filter(Boolean).join(' · ')}
+                              </Typography>
+                            </Box>
+                            <Typography sx={{ ...tabular, fontWeight: 900, fontSize: onTrack.length > 3 ? '2.4rem' : '3.2rem', lineHeight: 1 }}>
+                              <LiveTimer start={run.start} />
+                            </Typography>
+                          </Box>
+                        )
+                      })}
+                      {onTrack.length > 8 && (
+                        <Typography sx={{ color: tokens.muted, fontSize: '1.3rem' }}>+ {onTrack.length - 8} na pista</Typography>
+                      )}
+                    </Box>
                   )}
-                </Box>
+                </Panel>
               )}
-            </Panel>
-            {onTrack.length > 0 && (
-              <Panel title="Progresso">
-                <TrackProgress state={state} big />
-              </Panel>
-            )}
-          </Box>
+              {showProgress && (onTrack.length > 0 || !showTrack) && (
+                <Panel title="Progresso" grow={!showTrack}>
+                  {onTrack.length > 0 ? (
+                    <TrackProgress state={state} big />
+                  ) : (
+                    <Typography sx={{ color: tokens.muted, fontSize: '1.6rem', textAlign: 'center', mt: 6 }}>Ninguém na pista agora.</Typography>
+                  )}
+                </Panel>
+              )}
+            </Box>
+          )}
 
-          {/* Direita: classificação geral, uma categoria por vez */}
-          <Panel
-            title={cat === 'Todas' ? 'Classificação' : cat}
-            right={
-              rotation.length > 1 ? (
-                <Box sx={{ display: 'flex', gap: 1 }} aria-label={`Categoria ${(catIndex % rotation.length) + 1} de ${rotation.length}`}>
-                  {rotation.map((c, i) => (
-                    <Box
-                      key={c}
-                      sx={{ width: 14, height: 14, borderRadius: radius.pill, bgcolor: i === catIndex % rotation.length ? tokens.brand : tokens.lineStrong }}
-                    />
-                  ))}
-                </Box>
-              ) : undefined
-            }
-          >
-            {rotation.length > 1 && (
-              // Barra que enche até a próxima categoria
-              <Box sx={{ height: 4, bgcolor: tokens.line, mb: 2, mx: -2.5, mt: -2.5 }}>
-                <Box
-                  key={catIndex}
-                  sx={{
-                    height: '100%',
-                    bgcolor: tokens.brand,
-                    animation: `tvfill ${TV_ROTATE_MS}ms linear`,
-                    '@keyframes tvfill': { from: { width: '0%' }, to: { width: '100%' } },
-                  }}
-                />
-              </Box>
-            )}
-            {rows.length === 0 ? (
-              <Typography sx={{ color: tokens.muted, fontSize: '1.6rem', textAlign: 'center', mt: 6 }}>Sem atletas nesta categoria.</Typography>
-            ) : (
-              <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                {rows.map((row, i) => (
-                  <StandingRow key={row.rider.num} row={row} pos={i + 1} leader={rows[0]} stagesCount={stages.length} />
-                ))}
-              </Box>
-            )}
-          </Panel>
+          {/* Direita: classificação geral (uma categoria por vez) e/ou imagens do telão */}
+          {showRight && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, minHeight: 0 }}>
+              {showImages && (
+                <Panel title="Telão" grow={!showStandings}>
+                  <Box sx={{ height: showStandings ? 300 : '100%' }}>
+                    <ImageRotation images={images} seconds={state.tvImageSeconds ?? 10} />
+                  </Box>
+                </Panel>
+              )}
+              {showStandings && (
+                <Panel
+                  grow
+                  title={cat === 'Todas' ? 'Classificação' : cat}
+                  right={
+                    rotation.length > 1 ? (
+                      <Box sx={{ display: 'flex', gap: 1 }} aria-label={`Categoria ${(catIndex % rotation.length) + 1} de ${rotation.length}`}>
+                        {rotation.map((c, i) => (
+                          <Box
+                            key={c}
+                            sx={{ width: 14, height: 14, borderRadius: radius.pill, bgcolor: i === catIndex % rotation.length ? tokens.brand : tokens.lineStrong }}
+                          />
+                        ))}
+                      </Box>
+                    ) : undefined
+                  }
+                >
+                  {rotation.length > 1 && (
+                    // Barra que enche até a próxima categoria
+                    <Box sx={{ height: 4, bgcolor: tokens.line, mb: 2, mx: -2.5, mt: -2.5 }}>
+                      <Box
+                        key={catIndex}
+                        sx={{
+                          height: '100%',
+                          bgcolor: tokens.brand,
+                          animation: `tvfill ${TV_ROTATE_MS}ms linear`,
+                          '@keyframes tvfill': { from: { width: '0%' }, to: { width: '100%' } },
+                        }}
+                      />
+                    </Box>
+                  )}
+                  {rows.length === 0 ? (
+                    <Typography sx={{ color: tokens.muted, fontSize: '1.6rem', textAlign: 'center', mt: 6 }}>Sem atletas nesta categoria.</Typography>
+                  ) : (
+                    <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                      {rows.map((row, i) => (
+                        <StandingRow key={row.rider.num} row={row} pos={i + 1} leader={rows[0]} stagesCount={stages.length} />
+                      ))}
+                    </Box>
+                  )}
+                </Panel>
+              )}
+            </Box>
+          )}
         </Box>
       </Box>
     </Box>
@@ -299,7 +345,7 @@ function StandingRow({ row, pos, leader, stagesCount }: { row: EnduroRankRow; po
       </Box>
       <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
         <Typography sx={{ ...tabular, fontWeight: 900, fontSize: '2.1rem', lineHeight: 1.1, color: row.hasDnf ? tokens.finish : tokens.text }}>
-          {row.hasDnf ? 'DNF' : row.completedCount > 0 ? fmt(row.totalTime) : '—'}
+          {row.outStatus ? row.outStatus.toUpperCase() : row.completedCount > 0 ? fmt(row.totalTime) : '—'}
         </Typography>
         <Typography sx={{ ...tabular, fontSize: '1.15rem', fontWeight: 700, color: row === leader && valid ? tokens.brand : tokens.muted }}>
           {gap}

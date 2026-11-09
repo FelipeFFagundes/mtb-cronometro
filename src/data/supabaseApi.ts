@@ -1,9 +1,12 @@
 import { createClient } from '@supabase/supabase-js'
-import type { Access, Api, AppState, AthleteEntry, AthleteSummary, EventInfo, MarshalAccessInfo, NewEvent, PendingOp, Rider, Role, Run, RunStatus, SyncStatus, Stage, StartGridItem } from '../types'
+import type { Access, Api, AppState, AthleteEntry, AthleteSummary, EventInfo, LogEntry, MarshalAccessInfo, NewEvent, PendingOp, Rider, Role, Run, RunStatus, SyncStatus, Stage, StartGridItem, TvPanel, TvScreen } from '../types'
 import { DEFAULT_CATEGORIES, DEFAULT_STAGES } from '../types'
 import { DEMO_RIDERS, DEMO_STAGES } from './demo'
 import { clock } from '../lib/time'
 import { closedRun, closedRunText } from '../lib/runs'
+import { getOperator } from '../lib/operator'
+import { dataUrlToBlob, shrinkImage } from '../lib/images'
+import { uuid } from '../lib/uuid'
 
 /*
  * Camada Supabase com FILA OFFLINE
@@ -39,13 +42,36 @@ interface RunRow {
   started_at: string
   finished_at: string | null
   status: RunStatus
+  penalty_ms?: number | null
+  started_by?: string | null
+  finished_by?: string | null
 }
 
 interface StageRow {
   id: string
   name: string
   position: number
+  km?: number | null
+  color?: string | null
 }
+
+interface TvRow {
+  code: string
+  event_id: string | null
+  panels: string[] | null
+  scale: number | null
+}
+
+const toTv = (r: TvRow): TvScreen => ({
+  code: r.code,
+  eventId: r.event_id,
+  panels: (r.panels ?? ['track', 'progress', 'standings']) as TvPanel[],
+  scale: r.scale ?? 100,
+})
+
+/** Colunas novas da migration recursos_prova; sem ela, o app usa as antigas e segue funcionando. */
+const RUN_COLS_V2 = 'id,rider_num,stage_id,started_at,finished_at,status,penalty_ms,started_by,finished_by'
+const RUN_COLS_V1 = 'id,rider_num,stage_id,started_at,finished_at,status'
 
 interface GridRow {
   stage_id: string
@@ -95,6 +121,8 @@ interface Op {
   eventId?: string
   /** Horário da ação (epoch ms, relógio do servidor estimado). */
   at: number
+  /** Quem registrou (nome do fiscal no aparelho). */
+  by?: string
   label: string
   createdAt: number
   attempts: number
@@ -115,6 +143,9 @@ const toRun = (r: RunRow, fallbackStageId: string): Run => ({
   start: new Date(r.started_at).getTime(),
   end: r.finished_at ? new Date(r.finished_at).getTime() : null,
   status: r.status,
+  penaltyMs: r.penalty_ms || undefined,
+  startedBy: r.started_by ?? undefined,
+  finishedBy: r.finished_by ?? undefined,
 })
 
 function readJson<T>(key: string, fallback: T): T {
@@ -220,6 +251,11 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
   let online = typeof navigator === 'undefined' ? true : navigator.onLine
   let syncing = false
   let lastOk: number | undefined
+  /** O banco já tem a migration recursos_prova (penalidades, DNS/DSQ, histórico, TVs...). */
+  let hasV2 = true
+  const needV2 = () => {
+    if (!hasV2) throw new Error('Este recurso precisa do banco atualizado: rode npm run db:push.')
+  }
   let pulling = false
   let flushing = false
 
@@ -302,13 +338,21 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       const event = await resolveEvent()
       if (!event) return false
       const ev = event.id
-      const [riders, runs, categories, stages, grid] = await Promise.all([
+      const runsQuery = (cols: string) => sb.from('runs').select(cols).eq('event_id', ev).order('started_at')
+      const [riders, runsV2, categoriesV2, stagesV2, grid, eventExtra] = await Promise.all([
         sb.from('riders').select('num,name,category,athlete_id,athletes(team)').eq('event_id', ev).order('num'),
-        sb.from('runs').select('id,rider_num,stage_id,started_at,finished_at,status').eq('event_id', ev).order('started_at'),
-        sb.from('categories').select('name').eq('event_id', ev).order('name'),
-        sb.from('stages').select('id,name,position').eq('event_id', ev).order('position'),
+        runsQuery(RUN_COLS_V2),
+        sb.from('categories').select('name,color').eq('event_id', ev).order('name'),
+        sb.from('stages').select('id,name,position,km,color').eq('event_id', ev).order('position'),
         sb.from('start_grid').select('stage_id,rider_num,position,scheduled_at').eq('event_id', ev).order('position'),
+        sb.from('events').select('tv_image_seconds').eq('id', ev).maybeSingle(),
       ])
+      // Banco ainda sem a migration recursos_prova (coluna inexistente = 42703): lê as colunas antigas
+      const missing = (r: { error: { code?: string } | null }) => r.error?.code === '42703'
+      hasV2 = !missing(runsV2)
+      const runs = hasV2 ? runsV2 : await runsQuery(RUN_COLS_V1)
+      const categories = missing(categoriesV2) ? await sb.from('categories').select('name').eq('event_id', ev).order('name') : categoriesV2
+      const stages = missing(stagesV2) ? await sb.from('stages').select('id,name,position').eq('event_id', ev).order('position') : stagesV2
       if (riders.error || runs.error) {
         const failed = runs.error ? runs : riders
         if (classify({ error: failed.error, status: failed.status }) === 'network') setOnline(false)
@@ -319,8 +363,12 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
 
       // Se a tabela categories não existir ainda no Supabase, usa o cache atual ou as categorias dos pilotos
       let cats: string[] = server.categories || [...DEFAULT_CATEGORIES]
+      const categoryColors: Record<string, string> = {}
       if (!categories.error && categories.data) {
-        cats = categories.data.map((c: { name: string }) => c.name)
+        cats = (categories.data as { name: string; color?: string | null }[]).map((c) => {
+          if (c.color) categoryColors[c.name] = c.color
+          return c.name
+        })
       } else if (riders.data && riders.data.length > 0) {
         const fromRiders = Array.from(new Set(riders.data.map((r: { category: string }) => r.category)))
         cats = Array.from(new Set([...cats, ...fromRiders]))
@@ -330,7 +378,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       const stageRows = (stages.data ?? []) as StageRow[]
       const stageList: Stage[] =
         !stages.error && stageRows.length > 0
-          ? stageRows.map((s) => ({ id: s.id, name: s.name, order: s.position }))
+          ? stageRows.map((s) => ({ id: s.id, name: s.name, order: s.position, km: s.km ? Number(s.km) : undefined, color: s.color ?? undefined }))
           : server.stages && server.stages.length > 0
             ? server.stages
             : [...DEFAULT_STAGES]
@@ -371,10 +419,12 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
         event,
         events: eventList,
         riders: riderList,
-        runs: ((runs.data ?? []) as RunRow[]).map((r) => toRun(r, firstStageId)),
+        runs: ((runs.data ?? []) as unknown as RunRow[]).map((r) => toRun(r, firstStageId)),
         categories: cats.length > 0 ? cats : [...DEFAULT_CATEGORIES],
         stages: stageList,
         grid: gridList,
+        categoryColors,
+        tvImageSeconds: (eventExtra.data as { tv_image_seconds?: number } | null)?.tv_image_seconds ?? 10,
       }
       writeJson(CACHE_KEY, server)
       online = true
@@ -411,8 +461,10 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     const at = new Date(op.at).toISOString()
     const stage = op.stageId ?? null
     const ev = op.eventId ?? eventId
-    if (op.kind === 'start') return sb.rpc('start_run', { p_event: ev, p_num: op.num, p_at: at, p_id: op.id, p_stage: stage })
-    if (op.kind === 'finish') return sb.rpc('finish_run', { p_event: ev, p_num: op.num, p_at: at, p_stage: stage })
+    // p_by só existe com a migration recursos_prova; sem ela, mandar o campo faria a função não ser encontrada
+    const by = hasV2 && op.by ? { p_by: op.by } : {}
+    if (op.kind === 'start') return sb.rpc('start_run', { p_event: ev, p_num: op.num, p_at: at, p_id: op.id, p_stage: stage, ...by })
+    if (op.kind === 'finish') return sb.rpc('finish_run', { p_event: ev, p_num: op.num, p_at: at, p_stage: stage, ...by })
     if (op.kind === 'dnf') return sb.rpc('dnf_run', { p_id: op.runId, p_at: at })
     return sb.rpc('undo_run', { p_id: op.runId })
   }
@@ -922,19 +974,20 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
         throw new Error(`${rider.name} já possui descida registrada na ${stageName}`)
       }
 
-      const id = crypto.randomUUID()
+      const id = uuid()
       enqueue({
         id,
         kind: 'start',
         num,
         stageId: targetStageId,
         at: Math.min(atEpochMs ?? nowSrv(), nowSrv()),
+        by: getOperator() || undefined,
         label: `Largada · ${who(num)} (${stageName})`,
       })
       return view().runs.find((r) => r.id === id) ?? null
     },
 
-    async finishRun(num, atEpochMs, stageId) {
+    async finishRun(num, atEpochMs, stageId, blind) {
       const st = view()
       const rider = st.riders.find((r) => r.num === num)
       if (!rider) throw new Error(`Piloto #${num} não cadastrado`)
@@ -942,19 +995,24 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       if (!open) {
         const closed = closedRun(st.runs, num, stageId)
         if (closed) throw new Error(closedRunText(rider.name, closed))
-        if (online) throw new Error(`${rider.name} não está na pista`)
+        if (online && !blind) throw new Error(`${rider.name} não está na pista`)
         if (queue.some((o) => o.kind === 'finish' && o.num === num)) {
           throw new Error(`Chegada de ${rider.name} já foi guardada`)
         }
-        notice(`Sem conexão: chegada de ${rider.name} guardada e será validada ao sincronizar.`)
+        notice(
+          online
+            ? `Chegada de ${rider.name} guardada: vale quando a largada dele chegar ao servidor.`
+            : `Sem conexão: chegada de ${rider.name} guardada e será validada ao sincronizar.`,
+        )
       }
       const finishTime = atEpochMs ?? nowSrv()
       enqueue({
-        id: crypto.randomUUID(),
+        id: uuid(),
         kind: 'finish',
         num,
         stageId: open?.stageId || stageId,
         at: finishTime,
+        by: getOperator() || undefined,
         label: `Chegada · ${who(num)}`,
       })
       return open ? (view().runs.find((r) => r.id === open.id) ?? null) : null
@@ -963,21 +1021,162 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     async dnfRun(id) {
       const run = view().runs.find((r) => r.id === id)
       if (!run) return
-      enqueue({ id: crypto.randomUUID(), kind: 'dnf', runId: id, at: nowSrv(), label: `DNF/DSQ · ${who(run.num)}` })
+      enqueue({ id: uuid(), kind: 'dnf', runId: id, at: nowSrv(), label: `DNF/DSQ · ${who(run.num)}` })
     },
 
     async undoRun(id) {
       const run = view().runs.find((r) => r.id === id)
       if (!run) return
-      enqueue({ id: crypto.randomUUID(), kind: 'undo', runId: id, at: nowSrv(), label: `Desfazer · ${who(run.num)}` })
+      enqueue({ id: uuid(), kind: 'undo', runId: id, at: nowSrv(), label: `Desfazer · ${who(run.num)}` })
     },
 
-    async clearRuns() {
+    async clearRuns(filter) {
       const event = ev()
-      ensure(await sb.from('runs').delete().eq('event_id', event))
+      let q = sb.from('runs').delete().eq('event_id', event)
+      if (filter?.stageId) q = q.eq('stage_id', filter.stageId)
+      if (filter?.category) {
+        const nums = server.riders.filter((r) => r.cat === filter.category).map((r) => r.num)
+        q = q.in('rider_num', nums.length > 0 ? nums : ['__nenhum__'])
+      }
+      ensure(await q)
       // Largadas e chegadas ainda na fila recriariam descidas apagadas
-      queue = queue.filter((op) => (op.eventId ?? event) !== event)
-      saveQueue()
+      if (!filter?.stageId && !filter?.category) {
+        queue = queue.filter((op) => (op.eventId ?? event) !== event)
+        saveQueue()
+      }
+      await pull()
+    },
+
+    async setRunStatus(id, status) {
+      needV2()
+      ensure(await sb.rpc('set_run_status', { p_id: id, p_status: status }))
+      await pull()
+    },
+
+    async markDns(num, stageId) {
+      needV2()
+      ensure(await sb.rpc('mark_dns', { p_event: ev(), p_num: num, p_stage: stageId }))
+      await pull()
+    },
+
+    async setPenalty(id, ms) {
+      needV2()
+      ensure(await sb.rpc('set_penalty', { p_id: id, p_ms: Math.round(ms) }))
+      await pull()
+    },
+
+    async updateStageInfo(id, info) {
+      needV2()
+      const patch: Record<string, unknown> = {}
+      if (info.km !== undefined) patch.km = info.km && info.km > 0 ? info.km : null
+      if (info.color !== undefined) patch.color = info.color || null
+      ensure(await sb.from('stages').update(patch).eq('event_id', ev()).eq('id', id))
+      await pull()
+    },
+
+    async setCategoryColor(name, color) {
+      needV2()
+      ensure(await sb.from('categories').update({ color: color || null }).eq('event_id', ev()).eq('name', name))
+      await pull()
+    },
+
+    async getLog() {
+      needV2()
+      const r = await sb.from('run_log').select('at,action,rider_num,stage_id,detail,actor').eq('event_id', ev()).order('at', { ascending: false }).limit(2000)
+      ensure(r)
+      type Row = { at: string; action: string; rider_num: string | null; stage_id: string | null; detail: string | null; actor: string | null }
+      return ((r.data ?? []) as Row[]).map(
+        (x): LogEntry => ({
+          at: new Date(x.at).getTime(),
+          action: x.action,
+          num: x.rider_num ?? undefined,
+          stageId: x.stage_id ?? undefined,
+          detail: x.detail ?? undefined,
+          actor: x.actor ?? undefined,
+        }),
+      )
+    },
+
+    async listOrganizers() {
+      needV2()
+      const r = await sb.rpc('list_organizers')
+      ensure(r)
+      return ((r.data ?? []) as { user_id: string; email: string; me: boolean }[]).map((o) => ({ userId: o.user_id, email: o.email, me: o.me }))
+    },
+
+    async addOrganizer(email) {
+      needV2()
+      ensure(await sb.rpc('add_organizer', { p_email: email }))
+    },
+
+    async removeOrganizer(userId) {
+      needV2()
+      ensure(await sb.rpc('remove_organizer', { p_user: userId }))
+    },
+
+    async tvRegister(code) {
+      const r = await sb.rpc('tv_register', { p_code: code })
+      ensure(r)
+      return toTv(r.data as TvRow)
+    },
+
+    watchTv(code, onChange) {
+      const channel = sb
+        .channel(`tv-${code}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'tv_screens', filter: `code=eq.${code}` }, (p) => {
+          if (p.new && 'code' in p.new) onChange(toTv(p.new as TvRow))
+        })
+        .subscribe()
+      // Sem tempo real (rede ruim), confere de 20 em 20 segundos
+      const poll = setInterval(async () => {
+        const r = await sb.from('tv_screens').select('code,event_id,panels,scale').eq('code', code).maybeSingle()
+        if (r.data) onChange(toTv(r.data as TvRow))
+      }, 20000)
+      return () => {
+        clearInterval(poll)
+        void sb.removeChannel(channel)
+      }
+    },
+
+    async tvLink(code, eventId, panels, scale) {
+      needV2()
+      ensure(await sb.rpc('tv_link', { p_code: code, p_event: eventId, p_panels: panels, p_scale: scale }))
+    },
+
+    async listTvImages() {
+      const r = await sb.from('tv_images').select('id,path,position').eq('event_id', ev()).order('position').order('created_at')
+      if (r.error) return []
+      return ((r.data ?? []) as { id: string; path: string }[]).map((i) => ({
+        id: i.id,
+        url: sb.storage.from('tv-images').getPublicUrl(i.path).data.publicUrl,
+      }))
+    },
+
+    async addTvImage(file) {
+      needV2()
+      const event = ev()
+      const blob = await dataUrlToBlob(await shrinkImage(file, 1600, 0.85))
+      const ext = blob.type === 'image/webp' ? 'webp' : 'jpg'
+      const path = `${event}/${uuid()}.${ext}`
+      const up = await sb.storage.from('tv-images').upload(path, blob, { contentType: blob.type })
+      if (up.error) throw new Error(`Não foi possível enviar a imagem: ${up.error.message}`)
+      const position = (await sb.from('tv_images').select('id', { count: 'exact', head: true }).eq('event_id', event)).count ?? 0
+      ensure(await sb.from('tv_images').insert({ event_id: event, path, position }))
+      emit()
+    },
+
+    async removeTvImage(id) {
+      const r = await sb.from('tv_images').select('path').eq('id', id).maybeSingle()
+      ensure(r)
+      const path = (r.data as { path: string } | null)?.path
+      if (path) await sb.storage.from('tv-images').remove([path])
+      ensure(await sb.from('tv_images').delete().eq('id', id))
+      emit()
+    },
+
+    async setTvImageSeconds(seconds) {
+      needV2()
+      ensure(await sb.from('events').update({ tv_image_seconds: Math.min(60, Math.max(3, Math.round(seconds))) }).eq('id', ev()))
       await pull()
     },
 
