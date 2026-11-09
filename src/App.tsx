@@ -428,6 +428,15 @@ export default function App() {
 
           <Box sx={{ flex: 1 }} />
           <SyncPill sync={sync} />
+          {/* Tema à mão em qualquer tela (o nome do tema atual aparece no toque longo / dica) */}
+          <IconButton
+            aria-label={`Tema: ${PALETTE_INFO.find((t) => t.id === paletteId)?.name}. Trocar tema`}
+            title="Trocar tema"
+            onClick={() => setThemeOpen(true)}
+            sx={{ color: 'text.primary', ...(!isAdmin && route.name === 'home' ? { mr: -1 } : {}) }}
+          >
+            <PaletteRoundedIcon />
+          </IconButton>
 
           {isAdmin ? (
             <>
