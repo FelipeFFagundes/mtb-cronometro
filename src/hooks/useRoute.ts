@@ -8,10 +8,12 @@ import { afterHistorySettles } from './useBackClose'
  *   #/e/K7MQ2             evento K7MQ2, telas do público
  *   #/e/K7MQ2/fiscal      evento K7MQ2, telas do fiscal/organizador
  *   #/e/K7MQ2/tv          evento K7MQ2 em tela cheia para TV ou telão (sem login)
+ *   #/e/K7MQ2/atleta/12   página pública do atleta de placa 12 no evento
  *   #/e/K7MQ2/simples     fiscal simplificado: só Largada e Chegada
  *   #/e/K7MQ2/simples/C   o mesmo, entrando com o código C do fiscal (QR code); o código sai do endereço logo depois
  *   #/organizar           eventos do organizador
  *   #/ajuda               como usar o app
+ *   #/tv                  TV pareada: mostra um código; o organizador escolhe o evento e o que ela exibe
  * O antigo "#admin" abre as telas do fiscal no evento em uso.
  */
 
@@ -20,6 +22,7 @@ export type Route =
   | { name: 'events' }
   | { name: 'organizer' }
   | { name: 'help' }
+  | { name: 'tvpair' }
   /** code vazio = evento em uso (links antigos "#admin"). */
   | {
       name: 'event'
@@ -30,6 +33,8 @@ export type Route =
       simple?: boolean
       /** Código do fiscal vindo do QR code (entra e some do endereço). */
       join?: string
+      /** Placa do atleta: página pública dele. */
+      athlete?: string
     }
 
 export function parseRoute(hash: string): Route {
@@ -38,8 +43,10 @@ export function parseRoute(hash: string): Route {
   if (parts[0] === 'organizar') return { name: 'organizer' }
   if (parts[0] === 'eventos') return { name: 'events' }
   if (parts[0] === 'ajuda') return { name: 'help' }
+  if (parts[0] === 'tv') return { name: 'tvpair' }
   if (parts[0] === 'e' && parts[1]) {
     const code = decodeURIComponent(parts[1]).toUpperCase()
+    if (parts[2] === 'atleta' && parts[3]) return { name: 'event', code, fiscal: false, athlete: decodeURIComponent(parts[3]) }
     if (parts[2] === 'simples') {
       return { name: 'event', code, fiscal: true, simple: true, join: parts[3] ? decodeURIComponent(parts[3]) : undefined }
     }
@@ -52,8 +59,17 @@ export function routeHash(route: Route): string {
   if (route.name === 'organizer') return '#/organizar'
   if (route.name === 'events') return '#/eventos'
   if (route.name === 'help') return '#/ajuda'
+  if (route.name === 'tvpair') return '#/tv'
   if (route.name === 'event') {
-    const sub = route.simple ? `/simples${route.join ? `/${encodeURIComponent(route.join)}` : ''}` : route.fiscal ? '/fiscal' : route.tv ? '/tv' : ''
+    const sub = route.athlete
+      ? `/atleta/${encodeURIComponent(route.athlete)}`
+      : route.simple
+        ? `/simples${route.join ? `/${encodeURIComponent(route.join)}` : ''}`
+        : route.fiscal
+          ? '/fiscal'
+          : route.tv
+            ? '/tv'
+            : ''
     return `#/e/${encodeURIComponent(route.code)}${sub}`
   }
   return '#/'

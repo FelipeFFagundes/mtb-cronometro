@@ -1,6 +1,8 @@
 import type { AppState, Stage } from '../types'
 import { buildEnduroRanking, type EnduroRankRow } from './ranking'
 import { fmt } from './time'
+import { isOut, outLabel, penaltyText } from './runs'
+import type { OutStatus } from '../types'
 
 /*
  * Dados do relatório de resultados (usados pelo PDF e pela imagem).
@@ -41,7 +43,7 @@ export function rankingStats(rows: EnduroRankRow[], stageId: string): RankingSta
   for (const row of rows) {
     const perfs = overall ? Object.values(row.stagePerformances) : [row.stagePerformances[stageId]]
     if (perfs.some((p) => p && p.status !== 'none')) started++
-    if (overall ? row.hasDnf : perfs[0]?.status === 'dnf') dnf++
+    if (overall ? row.hasDnf : isOut(perfs[0]?.status)) dnf++
     else if (overall ? row.isCompletedAll : perfs[0]?.status === 'done') finished++
   }
   return { overall, athletes: rows.length, started, finished, dnf }
@@ -54,7 +56,7 @@ export function statItems(s: RankingStats): { label: string; value: number }[] {
     { label: 'Largaram', value: s.started },
     // Na geral, "chegou" só conta quem fez todas as especiais
     { label: s.overall ? 'Concluíram' : 'Chegaram', value: s.finished },
-    { label: 'DNF', value: s.dnf },
+    { label: 'Fora', value: s.dnf },
   ]
 }
 
@@ -80,15 +82,15 @@ export function stageLabel(st: Stage): string {
 function overallRow(row: EnduroRankRow, pos: number | null, stages: Stage[]): ReportRow {
   const cells = stages.map((st) => {
     const p = row.stagePerformances[st.id]
-    if (p?.status === 'done' && p.time != null) return fmt(p.time)
-    if (p?.status === 'dnf') return 'DNF'
+    if (p?.status === 'done' && p.time != null) return fmt(p.time) + (p.penaltyMs ? ` ${penaltyText(p.penaltyMs)}` : '')
+    if (isOut(p?.status)) return outLabel(p.status as OutStatus)
     if (p?.status === 'track') return 'pista'
     return '—'
   })
   const started = Object.values(row.stagePerformances).some((p) => p.status !== 'none')
   let total = '—'
   let gap = ''
-  if (row.hasDnf) total = 'DNF'
+  if (row.outStatus) total = outLabel(row.outStatus)
   else if (!started) total = 'DNS'
   else if (row.completedCount > 0) {
     total = fmt(row.totalTime)
@@ -105,7 +107,7 @@ function stageRow(row: EnduroRankRow, pos: number | null, stageId: string): Repo
   if (p?.status === 'done' && p.time != null) {
     total = fmt(p.time)
     if (pos !== 1 && p.stageGap != null) gap = `+${fmt(p.stageGap)}`
-  } else if (p?.status === 'dnf') total = 'DNF'
+  } else if (isOut(p?.status)) total = outLabel(p.status as OutStatus)
   else if (p?.status === 'track') total = 'Na pista'
   return { pos, num: row.rider.num, name: row.rider.name, cells: [], total, gap }
 }

@@ -4,6 +4,10 @@ export interface Stage {
   id: string
   name: string
   order: number
+  /** Distância em km (velocidade média e previsão de chegada). */
+  km?: number
+  /** Cor da especial (hex), para reconhecer de relance. */
+  color?: string
 }
 
 export const DEFAULT_STAGES: Stage[] = [
@@ -12,7 +16,11 @@ export const DEFAULT_STAGES: Stage[] = [
   { id: 'stage-3', name: 'E3 - teste', order: 3 },
 ]
 
-export type RunStatus = 'track' | 'done' | 'dnf'
+/** DNF: largou e não terminou; DNS: não largou; DSQ: desclassificado pela organização. */
+export type RunStatus = 'track' | 'done' | 'dnf' | 'dns' | 'dsq'
+
+/** Situações que tiram o atleta da classificação geral. */
+export type OutStatus = 'dnf' | 'dns' | 'dsq'
 
 export interface Rider {
   num: string
@@ -59,6 +67,47 @@ export interface Run {
   start: number
   end: number | null
   status: RunStatus
+  /** Penalidade somada ao tempo (ms). */
+  penaltyMs?: number
+  /** Nome de quem registrou a largada e a chegada (fiscal identificado no aparelho). */
+  startedBy?: string
+  finishedBy?: string
+}
+
+/** Uma linha do histórico de alterações das descidas. */
+export interface LogEntry {
+  at: number
+  action: string
+  num?: string
+  stageId?: string
+  detail?: string
+  actor?: string
+}
+
+/** Organizador com acesso à área de eventos. */
+export interface Organizer {
+  userId: string
+  email: string
+  /** É quem está usando o aparelho. */
+  me: boolean
+}
+
+/** O que uma TV pareada mostra. */
+export type TvPanel = 'track' | 'progress' | 'standings' | 'images'
+
+/** TV pareada pelo código de 6 dígitos. */
+export interface TvScreen {
+  code: string
+  eventId: string | null
+  panels: TvPanel[]
+  /** Escala em % (50 a 150). */
+  scale: number
+}
+
+/** Imagem do telão (patrocinadores, mapa da trilha, avisos). */
+export interface TvImage {
+  id: string
+  url: string
 }
 
 /** Papel do aparelho no evento: público só lê; fiscal registra largada e chegada; organizador faz tudo. */
@@ -116,6 +165,10 @@ export interface AppState {
   stages: Stage[]
   /** Ordem de largada de todas as especiais (por especial, na ordem de largada). */
   grid: StartGridItem[]
+  /** Cor de cada categoria (hex). */
+  categoryColors?: Record<string, string>
+  /** Segundos de cada imagem no telão. */
+  tvImageSeconds?: number
 }
 
 export interface SyncStatus {
@@ -202,11 +255,33 @@ export interface Api {
   importRiders(riders: Rider[], categories: string[]): Promise<ImportResult>
   /** `atEpochMs`: horário da largada (ex.: seguir uma largada cancelada no horário original); padrão é agora. */
   startRun(num: string, stageId?: string, atEpochMs?: number): Promise<Run | null>
-  finishRun(num: string, atEpochMs?: number, stageId?: string): Promise<Run | null>
+  /** `blind`: registra mesmo sem a largada no aparelho (largada sem sinal); o servidor aguarda a largada chegar. */
+  finishRun(num: string, atEpochMs?: number, stageId?: string, blind?: boolean): Promise<Run | null>
   dnfRun(id: string): Promise<void>
   undoRun(id: string): Promise<void>
-  /** Apaga todas as descidas do evento; pilotos, categorias, especiais e grade continuam. */
-  clearRuns(): Promise<void>
+  /** Só organizador: DSQ, ou volta a valer ('done'); DNF também pelo fiscal. */
+  setRunStatus(id: string, status: 'dnf' | 'dsq' | 'done'): Promise<void>
+  /** Só organizador: o piloto não largou nesta especial. */
+  markDns(num: string, stageId: string): Promise<void>
+  /** Só organizador: penalidade total da descida (ms; 0 tira). */
+  setPenalty(id: string, ms: number): Promise<void>
+  /** Apaga as descidas do evento (ou só de uma especial/categoria); pilotos, categorias, especiais e grade continuam. */
+  clearRuns(filter?: { stageId?: string; category?: string }): Promise<void>
+  updateStageInfo(id: string, info: { km?: number | null; color?: string | null }): Promise<void>
+  setCategoryColor(name: string, color: string | null): Promise<void>
+  /** Histórico de alterações das descidas do evento (mais recentes primeiro). */
+  getLog(): Promise<LogEntry[]>
+  listOrganizers(): Promise<Organizer[]>
+  addOrganizer(email: string): Promise<void>
+  removeOrganizer(userId: string): Promise<void>
+  /** A TV se registra com o código dela e passa a receber o que o organizador escolher. */
+  tvRegister(code: string): Promise<TvScreen>
+  watchTv(code: string, onChange: (tv: TvScreen) => void): () => void
+  tvLink(code: string, eventId: string | null, panels: TvPanel[], scale: number): Promise<void>
+  listTvImages(): Promise<TvImage[]>
+  addTvImage(file: Blob): Promise<void>
+  removeTvImage(id: string): Promise<void>
+  setTvImageSeconds(seconds: number): Promise<void>
   loadDemo(): Promise<void>
   reset(): Promise<void>
 }

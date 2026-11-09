@@ -14,9 +14,9 @@ import FormatListNumberedRoundedIcon from '@mui/icons-material/FormatListNumbere
 
 export type PublicTab = 'live' | 'results' | 'grid'
 
-export function PublicView({ state, tab, sync }: { state: AppState; tab: PublicTab; sync: SyncStatus }) {
+export function PublicView({ state, tab, sync, onOpenAthlete }: { state: AppState; tab: PublicTab; sync: SyncStatus; onOpenAthlete: (num: string) => void }) {
   if (tab === 'results') {
-    return <EnduroLeaderboard state={state} sync={sync} title="Resultados" subtitle="Classificação oficial" />
+    return <EnduroLeaderboard state={state} sync={sync} title="Resultados" subtitle="Classificação oficial" onOpenAthlete={onOpenAthlete} />
   }
   if (tab === 'grid') return <PublicStartGrid state={state} />
   return <PublicLive state={state} />

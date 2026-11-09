@@ -5,6 +5,7 @@ import { BottomSheet, ChipSelect } from './ui'
 import { Alert, Box, Button, TextField, Typography } from '@mui/material'
 import PictureAsPdfRoundedIcon from '@mui/icons-material/PictureAsPdfRounded'
 import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
+import TableChartRoundedIcon from '@mui/icons-material/TableChartRounded'
 
 const TITLE_KEY = 'mtb-report-title'
 
@@ -30,7 +31,7 @@ export function ExportReport({ open, onClose, state, initialStageId, initialCate
   const [title, setTitle] = useState(() => savedTitle() || state.event?.name || '')
   const [stageId, setStageId] = useState(initialStageId)
   const [category, setCategory] = useState(initialCategory)
-  const [busy, setBusy] = useState<'pdf' | 'png' | null>(null)
+  const [busy, setBusy] = useState<'pdf' | 'png' | 'xlsx' | null>(null)
   const [error, setError] = useState('')
 
   // Ao abrir, parte dos filtros que estão na tela
@@ -44,7 +45,7 @@ export function ExportReport({ open, onClose, state, initialStageId, initialCate
     }
   }
 
-  const generate = async (kind: 'pdf' | 'png') => {
+  const generate = async (kind: 'pdf' | 'png' | 'xlsx') => {
     setBusy(kind)
     setError('')
     try {
@@ -57,7 +58,9 @@ export function ExportReport({ open, onClose, state, initialStageId, initialCate
       const blob =
         kind === 'pdf'
           ? await (await import('../lib/reportPdf')).buildReportPdf(report)
-          : await (await import('../lib/reportImage')).buildReportImage(report)
+          : kind === 'xlsx'
+            ? await (await import('../lib/reportXlsx')).buildReportXlsx(report)
+            : await (await import('../lib/reportImage')).buildReportImage(report)
       await saveOrShare(blob, reportFileName(report, kind), `${report.title} · ${report.scope}`)
     } catch (e) {
       setError((e as Error).message || 'Não foi possível gerar o relatório')
@@ -103,7 +106,7 @@ export function ExportReport({ open, onClose, state, initialStageId, initialCate
           </Box>
         )}
         {error && <Alert severity="error">{error}</Alert>}
-        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 1 }}>
           <Button
             variant="contained"
             size="large"
@@ -123,10 +126,20 @@ export function ExportReport({ open, onClose, state, initialStageId, initialCate
           >
             {busy === 'png' ? 'Gerando…' : 'Imagem'}
           </Button>
+          <Button
+            variant="outlined"
+            size="large"
+            color="inherit"
+            startIcon={<TableChartRoundedIcon />}
+            disabled={busy !== null}
+            onClick={() => void generate('xlsx')}
+          >
+            {busy === 'xlsx' ? 'Gerando…' : 'Excel'}
+          </Button>
         </Box>
         <Typography variant="caption" color="text.secondary">
-          PDF em A4 para imprimir ou arquivar. Imagem para mandar no WhatsApp ou postar. Com “Todas”, cada categoria tem a
-          própria classificação.
+          PDF em A4 para imprimir ou arquivar. Imagem para mandar no WhatsApp ou postar. Excel com uma aba por categoria, para
+          conferir ou montar o ranking da temporada. Com “Todas”, cada categoria tem a própria classificação.
         </Typography>
       </Box>
     </BottomSheet>

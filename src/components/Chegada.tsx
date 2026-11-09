@@ -6,7 +6,10 @@ import { DEFAULT_STAGES } from '../types'
 import { clock, fmt } from '../lib/time'
 import { closedRunText } from '../lib/runs'
 import { LiveTimer } from './LiveTimer'
-import { EtaHint } from './EtaHint'
+import { BeatHint, EtaHint } from './EtaHint'
+import { QuickFinish } from './QuickFinish'
+import { referenceTime } from '../lib/progress'
+import { isOut, outLabel, penaltyText, runTime } from '../lib/runs'
 import { LateAlert, TrackProgress } from './TrackProgress'
 import { radius, tabular, tint, tokens } from '../theme'
 import { BottomSheet, ChipSelect, ConfirmDialog, EmptyState, Kbd, ListCard, PageHeader, RiderPlate, Section, StickyBar } from './ui'
@@ -17,6 +20,7 @@ import SportsScoreRoundedIcon from '@mui/icons-material/SportsScoreRounded'
 import WarningRoundedIcon from '@mui/icons-material/WarningRounded'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import BlockRoundedIcon from '@mui/icons-material/BlockRounded'
+import BoltRoundedIcon from '@mui/icons-material/BoltRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 
 interface Props {
@@ -61,6 +65,9 @@ export function Chegada({ state, act, sync }: Props) {
 
   const stages = state.stages && state.stages.length > 0 ? state.stages : DEFAULT_STAGES
   const [selectedFilterStage, setSelectedFilterStage] = useState<string>('all')
+  // Ordem dos cartões: por largada, ou por quem deve chegar primeiro (largada + tempo de referência)
+  const [order, setOrder] = useState<'start' | 'eta'>('start')
+  const [quickOpen, setQuickOpen] = useState(false)
 
   const riderName = (num: string) => state.riders.find((r) => r.num === num)?.name ?? `Piloto #${num}`
 
@@ -103,9 +110,10 @@ export function Chegada({ state, act, sync }: Props) {
     return act(() => api.dnfRun(target.id), `Piloto #${target.num} (${target.name}) marcado como DNF`)
   }
 
+  const eta = (r: (typeof state.runs)[number]) => r.start + (referenceTime(state, r)?.ms ?? Number.MAX_SAFE_INTEGER / 2)
   const track = state.runs
     .filter((r) => r.status === 'track' && (selectedFilterStage === 'all' || (r.stageId || stages[0]?.id) === selectedFilterStage))
-    .sort((a, b) => a.start - b.start)
+    .sort((a, b) => (order === 'eta' ? eta(a) - eta(b) : 0) || a.start - b.start)
 
   // Atalhos (computador): 1 a 9 registram a chegada do piloto naquela posição; Enter confirma
   useKeydown((e) => {
@@ -164,7 +172,28 @@ export function Chegada({ state, act, sync }: Props) {
         </Section>
       )}
 
-      <Section title="Na pista" count={track.length}>
+      <Section
+        title="Na pista"
+        count={track.length}
+        action={
+          <Button size="small" variant="outlined" color="inherit" startIcon={<BoltRoundedIcon />} onClick={() => setQuickOpen(true)}>
+            Chegada rápida
+          </Button>
+        }
+      >
+        {track.length > 1 && (
+          <Box sx={{ mb: 1 }}>
+            <ChipSelect
+              ariaLabel="Ordem dos pilotos na pista"
+              value={order}
+              onChange={(v) => setOrder(v as 'start' | 'eta')}
+              options={[
+                { value: 'start', label: 'Ordem de largada' },
+                { value: 'eta', label: 'Chegada prevista' },
+              ]}
+            />
+          </Box>
+        )}
         {track.length === 0 ? (
           <EmptyState icon={<SportsScoreRoundedIcon />} title="Pista livre" text="Nenhum piloto descendo nesta seleção." />
         ) : (
@@ -220,6 +249,7 @@ export function Chegada({ state, act, sync }: Props) {
                     <LiveTimer start={run.start} />
                   </Box>
                   <EtaHint state={state} run={run} />
+                  <BeatHint state={state} run={run} />
                 </ButtonBase>
               )
             })}
@@ -237,7 +267,8 @@ export function Chegada({ state, act, sync }: Props) {
             {done.map((run) => {
               const r = state.riders.find((x) => x.num === run.num)
               const st = stages.find((s) => s.id === run.stageId)
-              const isDnf = run.status === 'dnf'
+              const isDnf = isOut(run.status)
+              const time = runTime(run)
               return (
                 <Box key={run.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, pl: 2, pr: 1, py: 1, minHeight: 60 }}>
                   <RiderPlate num={run.num} size="sm" tone="muted" />
@@ -253,10 +284,17 @@ export function Chegada({ state, act, sync }: Props) {
                       {st?.name ?? 'Especial'}
                     </Typography>
                   </Box>
-                  {isDnf ? (
-                    <Chip label="DNF" size="small" color="error" />
+                  {isOut(run.status) ? (
+                    <Chip label={outLabel(run.status)} size="small" color="error" />
                   ) : (
-                    <Typography sx={{ ...tabular, fontWeight: 900, color: 'secondary.main' }}>{fmt(run.end! - run.start)}</Typography>
+                    <Typography sx={{ ...tabular, fontWeight: 900, color: 'secondary.main' }}>
+                      {fmt(time ?? 0)}
+                      {run.penaltyMs ? (
+                        <Box component="span" sx={{ color: 'warning.main', fontSize: '0.75rem', ml: 0.5 }}>
+                          {penaltyText(run.penaltyMs)}
+                        </Box>
+                      ) : null}
+                    </Typography>
                   )}
                   <IconButton
                     aria-label={`Corrigir descida de ${r?.name ?? run.num}`}
@@ -266,7 +304,7 @@ export function Chegada({ state, act, sync }: Props) {
                         num: run.num,
                         name: r?.name ?? `Piloto #${run.num}`,
                         stageName: st?.name ?? 'Especial',
-                        timeStr: isDnf ? 'DNF' : fmt(run.end! - run.start),
+                        timeStr: isOut(run.status) ? outLabel(run.status) : fmt(time ?? 0),
                         isDnf,
                       })
                     }
@@ -434,6 +472,14 @@ export function Chegada({ state, act, sync }: Props) {
       >
         O tempo de #{deleteTarget?.num} {deleteTarget?.name} na {deleteTarget?.stageName} será apagado.
       </ConfirmDialog>
+
+      <QuickFinish
+        open={quickOpen}
+        onClose={() => setQuickOpen(false)}
+        state={state}
+        act={act}
+        stageId={selectedFilterStage === 'all' ? undefined : selectedFilterStage}
+      />
     </Box>
   )
 }

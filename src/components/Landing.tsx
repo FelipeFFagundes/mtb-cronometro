@@ -9,6 +9,7 @@ import ManageAccountsRoundedIcon from '@mui/icons-material/ManageAccountsRounded
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded'
 import PaletteRoundedIcon from '@mui/icons-material/PaletteRounded'
+import TvRoundedIcon from '@mui/icons-material/TvRounded'
 
 interface Props {
   events: EventInfo[]
@@ -20,6 +21,7 @@ interface Props {
   onOrganizer: () => void
   onHelp: () => void
   onTheme: () => void
+  onTv: () => void
 }
 
 function EntryCard({
@@ -90,7 +92,7 @@ function EntryCard({
 }
 
 /** Página inicial: escolher entre acompanhar uma prova, entrar como fiscal ou como organizador. */
-export function Landing({ events, access, currentEvent, onEvents, onFiscal, onOrganizer, onHelp, onTheme }: Props) {
+export function Landing({ events, access, currentEvent, onEvents, onFiscal, onOrganizer, onHelp, onTheme, onTv }: Props) {
   const { open } = sortEvents(events)
   const today = open.filter((e) => e.startsOn === todayIso() && e.status === 'aberto')
   const canOperate = access.role !== 'public'
@@ -160,6 +162,9 @@ export function Landing({ events, access, currentEvent, onEvents, onFiscal, onOr
         </Button>
         <Button color="inherit" startIcon={<PaletteRoundedIcon />} onClick={onTheme} sx={{ color: tokens.muted }}>
           Tema
+        </Button>
+        <Button color="inherit" startIcon={<TvRoundedIcon />} onClick={onTv} sx={{ color: tokens.muted }}>
+          Esta tela é uma TV
         </Button>
       </Box>
     </Box>

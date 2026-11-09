@@ -111,16 +111,44 @@ export const PALETTES = {
     bronze: '#9a3412',
     },
   einkEscuro: einkDark,
-  ambar: {
-    ...einkDark,
-    line: 'rgba(255, 176, 0, 0.16)',
-    lineStrong: 'rgba(255, 176, 0, 0.34)',
-    text: '#ffb000',
-    muted: '#c08a1e',
-    brand: '#ffb000',
-    gold: '#ffb000',
-    silver: '#c08a1e',
-    bronze: '#8a6214',
+  /** Azul-marinho, vermelho e amarelo de prova de downhill (estilo Red Bull Hardline). */
+  hardline: {
+    ...spet,
+    bg: '#07102b',
+    surface: '#0e1a3d',
+    raised: '#16244f',
+    bar: '#040a1d',
+    line: 'rgba(255, 204, 0, 0.1)',
+    lineStrong: 'rgba(255, 204, 0, 0.24)',
+    text: '#f5f7ff',
+    muted: '#9aa6c8',
+    brand: '#ffcc00',
+    brandInk: '#07102b',
+    finish: '#e4002b',
+    finishInk: '#ffffff',
+    warn: '#ff8a1f',
+    gold: '#ffcc00',
+    silver: '#c9d1e6',
+    bronze: '#e08a3c',
+  },
+  /** Preto fosco com verde neon (estilo Monster Energy). */
+  monster: {
+    ...spet,
+    bg: '#050505',
+    surface: '#101110',
+    raised: '#191b18',
+    bar: '#000000',
+    line: 'rgba(149, 213, 0, 0.12)',
+    lineStrong: 'rgba(149, 213, 0, 0.28)',
+    text: '#f2f5ee',
+    muted: '#9ca394',
+    brand: '#95d500',
+    brandInk: '#0b1400',
+    start: '#16a34a',
+    startInk: '#ffffff',
+    gold: '#95d500',
+    silver: '#d4d4d8',
+    bronze: '#c2771b',
   },
 } satisfies Record<string, Palette>
 
@@ -132,14 +160,16 @@ export const PALETTE_INFO: { id: PaletteId; name: string; text: string }[] = [
   { id: 'trilha', name: 'Trilha', text: 'Verde-floresta com lima de alta visibilidade.' },
   { id: 'einkClaro', name: 'E-ink claro', text: 'Papel e tinta, alto contraste. Melhor no sol forte.' },
   { id: 'einkEscuro', name: 'E-ink escuro', text: 'Preto puro e branco. Economiza bateria em tela OLED.' },
-  { id: 'ambar', name: 'Âmbar', text: 'Preto puro com texto âmbar. Cansa menos a vista à noite.' },
+  { id: 'hardline', name: 'Hardline', text: 'Azul-marinho, vermelho e amarelo de prova de downhill.' },
+  { id: 'monster', name: 'Monster', text: 'Preto fosco com verde neon.' },
 ]
 
 const PALETTE_KEY = 'mtb-palette-v1'
 
 function savedPalette(): PaletteId {
   try {
-    const id = localStorage.getItem(PALETTE_KEY)
+    let id = localStorage.getItem(PALETTE_KEY)
+    if (id === 'ambar') id = 'hardline' // tema antigo, substituído
     if (id && id in PALETTES) return id as PaletteId
   } catch {
     // Sem acesso ao armazenamento: fica o padrão

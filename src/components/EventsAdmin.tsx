@@ -8,6 +8,9 @@ import { tabular, tokens } from '../theme'
 import { BottomSheet, ConfirmDialog, EmptyState, FilterBar, PageHeader } from './ui'
 import { athleteKey } from '../lib/athletes'
 import { QrCode } from './QrCode'
+import { TvLink } from './TvLink'
+import { Organizers } from './Organizers'
+import { saveOrShare } from '../lib/report'
 import { Alert, Box, Button, Card, Chip, Tab, Tabs, TextField, Typography } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
@@ -19,6 +22,7 @@ import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import FileCopyRoundedIcon from '@mui/icons-material/FileCopyRounded'
 import EventRoundedIcon from '@mui/icons-material/EventRounded'
 import TvRoundedIcon from '@mui/icons-material/TvRounded'
+import PictureAsPdfRoundedIcon from '@mui/icons-material/PictureAsPdfRounded'
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 
 interface Props {
@@ -114,6 +118,12 @@ export function EventsAdmin({ events, act, onOpen }: Props) {
   }
 
   const link = sharing?.publicCode ? eventLink(sharing.publicCode) : ''
+  const poster = (ev: EventInfo) =>
+    void act(async () => {
+      const blob = await (await import('../lib/posterPdf')).buildPosterPdf(ev, eventLink(ev.publicCode ?? ''))
+      const slug = ev.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-')
+      await saveOrShare(blob, `cartaz-${slug}.pdf`, ev.name)
+    })
   const copyLink = () => void act(() => navigator.clipboard.writeText(link), 'Link copiado')
   const shareLink = async () => {
     try {
@@ -210,6 +220,8 @@ export function EventsAdmin({ events, act, onOpen }: Props) {
         Rascunho fica escondido do público. Encerrado continua visível, mas os fiscais não registram mais tempos. O código
         dos fiscais de cada evento fica em Prova → Acesso, depois de abrir o evento.
       </Typography>
+
+      {api.mode === 'supabase' && <Organizers act={act} />}
 
       {/* ===== Criar / editar ===== */}
       <BottomSheet open={Boolean(draft)} onClose={() => setDraft(null)} title={
@@ -310,6 +322,10 @@ export function EventsAdmin({ events, act, onOpen }: Props) {
             >
               Abrir modo TV (telão)
             </Button>
+            <Button variant="outlined" color="inherit" startIcon={<PictureAsPdfRoundedIcon />} onClick={() => void poster(sharing)}>
+              Cartaz A4 para imprimir (PDF)
+            </Button>
+            <TvLink event={sharing} act={act} />
             <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
               <Button variant="outlined" color="inherit" startIcon={<ContentCopyRoundedIcon />} onClick={copyLink}>
                 Copiar link

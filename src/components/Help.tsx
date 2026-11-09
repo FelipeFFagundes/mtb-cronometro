@@ -1,3 +1,4 @@
+import { versionText } from '../lib/version'
 import { useState, type ReactNode } from 'react'
 import type { Role } from '../types'
 import { display, radius, tabular, tokens } from '../theme'
@@ -158,6 +159,26 @@ function FiscalGuide() {
           </>,
         ]}
       />
+      <Steps
+        title="Recursos da chegada"
+        items={[
+          <>
+            <B>Chegada rápida</B> (botão ao lado de "Na pista"): toque em <B>CRUZOU</B> no instante da passagem e digite a placa
+            depois. Serve quando chegam vários juntos ou quando o piloto não aparece na lista porque a largada ainda não sincronizou.
+          </>,
+          <>
+            Cada cartão mostra <B>chega em ~0:12</B> (pela mediana dos tempos) e o <B>tempo a bater</B>, o melhor da categoria naquela
+            especial. <B>Chegada prevista</B> ordena os cartões por quem deve chegar primeiro.
+          </>,
+          <>
+            Piloto <B>bem acima do tempo</B> aparece num aviso laranja: confirme com o resgate antes de marcar DNF.
+          </>,
+        ]}
+      />
+      <Note>
+        No menu <B>⋮</B>, <B>Identificar-se</B> grava o seu nome: ele vai junto com cada largada e chegada e aparece no histórico. A tela
+        fica acesa enquanto o modo fiscal está aberto.
+      </Note>
       <SyncLegend />
       <Note severity="warning">
         Com o indicador em <B>Enviando</B> ou <B>Offline</B>, não saia do modo fiscal: há tempos guardados só neste celular. Espere
@@ -165,7 +186,8 @@ function FiscalGuide() {
       </Note>
       <Note>
         No computador: <B>Enter</B> larga o próximo e <B>/</B> abre a busca, na Largada; <B>1</B> a <B>9</B> registram a chegada
-        do piloto naquela posição e <B>Enter</B> confirma, na Chegada. O som da largada liga e desliga no menu <B>⋮</B>.
+        do piloto naquela posição e <B>Enter</B> confirma, na Chegada. A tecla <B>?</B> mostra todos os atalhos. O som da largada liga e
+        desliga no menu <B>⋮</B>.
       </Note>
     </>
   )
@@ -247,6 +269,40 @@ function OrganizerGuide() {
   )
 }
 
+function ResultsGuide() {
+  return (
+    <Steps
+      title="Resultados e correções (organizador)"
+      items={[
+        <>
+          No <B>Ranking</B>, toque no atleta e no <B>⋯</B> de uma especial, ou use a <B>Matriz</B> e toque na célula: penalidade de{' '}
+          <B>+10s</B> ou <B>+30s</B>, <B>DSQ</B> (desclassificado), <B>DNS</B> (não largou) ou <B>Voltar a valer</B>.
+        </>,
+        <>
+          Tempo marcado com <B>⚠</B> está muito fora da mediana: confira a largada e a chegada. O painel no topo mostra, por especial,
+          quantos chegaram, estão na pista, ficaram fora e faltam.
+        </>,
+        <>
+          Menu <B>⋮</B> → <B>Histórico de alterações</B>: quem largou, chegou, corrigiu ou apagou cada descida, com exportação em CSV.
+          <B> Apagar descidas</B> pode apagar tudo ou só uma especial e categoria.
+        </>,
+        <>
+          <B>Exportar</B> gera PDF, imagem ou Excel (uma aba por categoria). O ícone de imagem ao lado gera a classificação para as
+          redes; no atleta, <B>Imagem do atleta</B> e <B>Página do atleta</B>.
+        </>,
+        <>
+          Em <B>Prova</B>: distância e cor das especiais, cor das categorias, grade <B>pela classificação</B> (o líder larga por último),
+          importação de planilha do Excel e a aba <B>Telão</B> com as imagens de patrocinadores para as TVs.
+        </>,
+        <>
+          Em <B>Eventos → Divulgar</B>: QR code, <B>Cartaz A4</B> para imprimir e <B>Ligar uma TV</B>: na TV, toque em{' '}
+          <B>Esta tela é uma TV</B> na página inicial e digite o código que ela mostrar.
+        </>,
+      ]}
+    />
+  )
+}
+
 function PublicGuide() {
   return (
     <>
@@ -320,9 +376,17 @@ export function Help({ role }: { role: Role }) {
       <PageHeader title="Como usar" subtitle="Passo a passo para cada função e para o dia da prova" />
       <ChipSelect ariaLabel="Guia" value={guide} onChange={(v) => setGuide(v as Guide)} options={GUIDES} />
       {guide === 'fiscal' && <FiscalGuide />}
-      {guide === 'organizador' && <OrganizerGuide />}
+      {guide === 'organizador' && (
+        <>
+          <OrganizerGuide />
+          <ResultsGuide />
+        </>
+      )}
       {guide === 'publico' && <PublicGuide />}
       {guide === 'dia' && <RaceDayGuide />}
+      <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center', mt: 2 }}>
+        Race Timer · {versionText()}
+      </Typography>
     </Box>
   )
 }

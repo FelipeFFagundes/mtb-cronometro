@@ -4,6 +4,8 @@ import { formatEventDate } from './events'
 import { fmt } from './time'
 import { loadLogo, stageLabel } from './report'
 import { tint, type Palette } from '../theme'
+import { isOut, outLabel } from './runs'
+import type { OutStatus } from '../types'
 
 /*
  * Card do atleta para compartilhar (story, quadrado, paisagem), desenhado em canvas.
@@ -40,7 +42,8 @@ export interface AthleteCard {
   /** Posição na categoria (0 = sem resultado válido) e quantos atletas há nela. */
   pos: number
   catSize: number
-  dnf: boolean
+  /** DNF, DNS ou DSQ que tirou o atleta da geral (vazio se está na classificação). */
+  out: string
   total: string
   gap: string
   done: string
@@ -80,7 +83,7 @@ export function buildAthleteCard(state: AppState, num: string): AthleteCard | nu
     sub: [rider.cat, rider.team].filter(Boolean).join(' · '),
     pos,
     catSize: rows.length,
-    dnf: Boolean(row?.hasDnf),
+    out: row?.outStatus ? outLabel(row.outStatus) : '',
     total: pos > 0 && row ? fmt(row.totalTime) : '—',
     gap: pos > 0 && row ? gapOf(row) : '',
     done: `${row?.completedCount ?? 0}/${stages.length}`,
@@ -92,7 +95,7 @@ export function buildAthleteCard(state: AppState, num: string): AthleteCard | nu
         tag,
         // "E2 - Erechim" vira "Erechim": a sigla já aparece ao lado
         name: st.name.startsWith(tag) ? st.name.slice(tag.length).replace(/^\s*[-–·]\s*/, '') : st.name,
-        time: ok ? fmt(p.time!) : p?.status === 'dnf' ? 'DNF' : p?.status === 'track' ? 'na pista' : '—',
+        time: ok ? fmt(p.time!) : isOut(p?.status) ? outLabel(p.status as OutStatus) : p?.status === 'track' ? 'na pista' : '—',
         pos: ok && p.stageRank ? p.stageRank : 0,
         of: rows.filter((r) => r.stagePerformances[st.id]?.status === 'done').length,
         gap: ok ? (p.stageRank === 1 ? 'melhor' : p.stageGap != null ? `+${fmt(p.stageGap)}` : '') : '',
@@ -112,6 +115,7 @@ export function buildAthleteCard(state: AppState, num: string): AthleteCard | nu
 }
 
 const DISPLAY = '"Barlow Condensed", system-ui, sans-serif'
+const OUT = ['DNF', 'DNS', 'DSQ']
 const BODY = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
 
 /** Texto que cabe em `maxW`, com reticências se não couber. */
@@ -189,7 +193,10 @@ function text(d: Draw, value: string, x: number, y: number, font: string, color:
 }
 
 /** Logo, evento e data/situação. Devolve onde o conteúdo começa. */
-function header(d: Draw, card: AthleteCard, logo: HTMLImageElement | null): number {
+/** Evento, data e situação do resultado (o que o cabeçalho mostra). */
+type HeaderInfo = Pick<AthleteCard, 'event' | 'date' | 'status'>
+
+function header(d: Draw, card: HeaderInfo, logo: HTMLImageElement | null): number {
   const { s, m, w, p } = d
   const y = m + R(10 * s)
   const logoH = R(70 * s)
@@ -239,7 +246,7 @@ function layoutCompleto(d: Draw, card: AthleteCard, top: number) {
   let y = top + identity(d, card, m, top, colW) + R(36 * s)
 
   const kpis = [
-    { label: 'Posição', value: card.dnf ? 'DNF' : card.pos ? `${card.pos}º` : '—', hint: card.pos ? `de ${card.catSize}` : '' },
+    { label: 'Posição', value: card.out || (card.pos ? `${card.pos}º` : '—'), hint: card.pos ? `de ${card.catSize}` : '' },
     { label: 'Tempo total', value: card.total, hint: card.gap },
     { label: 'Especiais', value: card.done, hint: 'concluídas' },
   ]
@@ -282,7 +289,7 @@ function layoutCompleto(d: Draw, card: AthleteCard, top: number) {
     const pad = R(24 * s)
     const right = stX + stW - pad
     text(d, st.tag, stX + pad, mid + R(12 * s * k), `800 ${R(34 * s * k)}px ${DISPLAY}`, p.text)
-    text(d, st.time, right, mid + R(6 * s * k), `800 ${R(40 * s * k)}px ${DISPLAY}`, st.time === 'DNF' ? p.finish : p.text, 'right')
+    text(d, st.time, right, mid + R(6 * s * k), `800 ${R(40 * s * k)}px ${DISPLAY}`, OUT.includes(st.time) ? p.finish : p.text, 'right')
     text(d, [st.pos ? `${st.pos}º` : '', st.gap].filter(Boolean).join(' · '), right, mid + R(34 * s * k), `600 ${R(22 * s * k)}px ${DISPLAY}`, st.best ? p.brand : p.muted, 'right')
     text(d, st.name, stX + pad + R(90 * s), mid + R(10 * s * k), `500 ${R(26 * s * k)}px ${BODY}`, p.muted, 'left', stW - R(90 * s) - pad * 2 - R(220 * s))
   })
@@ -292,7 +299,7 @@ function layoutCompleto(d: Draw, card: AthleteCard, top: number) {
 function layoutDestaque(d: Draw, card: AthleteCard, top: number) {
   const { ctx, s, m, w, h, p, land } = d
   const bottom = h - m - R(70 * s)
-  const big = card.dnf ? 'DNF' : card.pos ? `${card.pos}º` : '—'
+  const big = card.out || (card.pos ? `${card.pos}º` : '—')
   const color = card.pos ? (podiumColor(p, card.pos) ?? p.text) : p.muted
 
   if (land) {
@@ -357,7 +364,7 @@ function layoutEspeciais(d: Draw, card: AthleteCard, top: number) {
     const labelY = t + R(44 * s * k)
     text(d, st.tag, x0, labelY, `800 ${R(40 * s * k)}px ${DISPLAY}`, p.text)
     text(d, st.name, x0 + R(80 * s * k), labelY, `500 ${R(28 * s * k)}px ${BODY}`, p.muted, 'left', barW - R(80 * s * k) - R(200 * s * k))
-    text(d, st.time, x0 + barW, labelY, `800 ${R(40 * s * k)}px ${DISPLAY}`, st.time === 'DNF' ? p.finish : p.text, 'right')
+    text(d, st.time, x0 + barW, labelY, `800 ${R(40 * s * k)}px ${DISPLAY}`, OUT.includes(st.time) ? p.finish : p.text, 'right')
     // Barra: quanto mais perto do 1º, mais cheia
     const by = labelY + R(18 * s * k)
     const bh = R(30 * s * k)
@@ -367,7 +374,7 @@ function layoutEspeciais(d: Draw, card: AthleteCard, top: number) {
       ctx.fillStyle = st.best ? p.brand : tint(p.text, 0.5)
       ctx.fillRect(x0, by, barW * ((st.of - st.pos + 1) / st.of), bh)
     }
-    const posTxt = st.pos ? `${st.pos}º de ${st.of}${st.gap ? ` · ${st.gap}` : ''}` : st.time === 'DNF' ? 'não terminou' : 'sem tempo'
+    const posTxt = st.pos ? `${st.pos}º de ${st.of}${st.gap ? ` · ${st.gap}` : ''}` : OUT.includes(st.time) ? st.time : 'sem tempo'
     text(d, posTxt, x0, by + bh + R(30 * s * k), `600 ${R(24 * s * k)}px ${DISPLAY}`, st.best ? p.brand : p.muted)
   })
 }
@@ -420,10 +427,8 @@ function layoutPodio(d: Draw, card: AthleteCard, top: number) {
   })
 }
 
-export async function renderAthleteCard(
-  card: AthleteCard,
-  opts: { format: CardFormat; layout: CardLayout; palette: Palette; transparent: boolean },
-): Promise<Blob> {
+/** Canvas no tamanho do formato, com fundo, faixa de placa e o contexto de desenho. */
+async function setup(opts: { format: CardFormat; palette: Palette; transparent: boolean }) {
   const f = CARD_FORMATS.find((x) => x.id === opts.format)!
   const { w, h } = f
   await Promise.all(['800 80px', '700 40px', '600 30px'].map((x) => document.fonts.load(`${x} ${DISPLAY}`).catch(() => null)))
@@ -459,15 +464,143 @@ export async function renderAthleteCard(
   // Faixa de placa no topo
   ctx.fillStyle = p.brand
   ctx.fillRect(0, 0, w, R(10 * s))
+  return { canvas, d, logo: logo?.img ?? null }
+}
 
-  const top = header(d, card, logo?.img ?? null)
+const toPng = (canvas: HTMLCanvasElement) =>
+  new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Não foi possível gerar a imagem'))), 'image/png'),
+  )
+
+export async function renderAthleteCard(
+  card: AthleteCard,
+  opts: { format: CardFormat; layout: CardLayout; palette: Palette; transparent: boolean },
+): Promise<Blob> {
+  const { canvas, d, logo } = await setup(opts)
+  const top = header(d, card, logo)
   if (opts.layout === 'destaque') layoutDestaque(d, card, top)
   else if (opts.layout === 'especiais') layoutEspeciais(d, card, top)
   else if (opts.layout === 'podio') layoutPodio(d, card, top)
   else layoutCompleto(d, card, top)
   footer(d)
+  return toPng(canvas)
+}
 
-  return new Promise((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Não foi possível gerar a imagem'))), 'image/png'),
-  )
+/* ===== Imagens do evento: classificação de uma categoria e divulgação dos inscritos ===== */
+
+export type EventImageKind = 'standings' | 'roster'
+
+function eventHeader(state: AppState): HeaderInfo {
+  return {
+    event: state.event?.name ?? 'Race Timer',
+    date: state.event?.startsOn ? formatEventDate(state.event.startsOn) : '',
+    status: state.event?.status === 'encerrado' ? 'Resultado final' : 'Resultado parcial',
+  }
+}
+
+export async function renderEventImage(
+  state: AppState,
+  kind: EventImageKind,
+  opts: { category: string; format: CardFormat; palette: Palette; transparent: boolean },
+): Promise<Blob> {
+  const { canvas, d, logo } = await setup(opts)
+  const info = eventHeader(state)
+  const top = header(d, kind === 'roster' ? { ...info, status: 'Inscritos' } : info, logo)
+  if (kind === 'standings') drawStandings(d, state, opts.category, top)
+  else drawRoster(d, state, opts.category, top)
+  footer(d)
+  return toPng(canvas)
+}
+
+/** Classificação geral de uma categoria (top 10 no story, menos nos formatos menores). */
+function drawStandings(d: Draw, state: AppState, category: string, top: number) {
+  const { ctx, s, m, w, h, p } = d
+  const { rows, stages } = buildEnduroRanking(state, category, 'all')
+  const ranked = rows.filter((r) => r.completedCount > 0 && !r.hasDnf)
+  const leader = ranked[0]
+  text(d, `CLASSIFICAÇÃO · ${category}`.toUpperCase(), m, top + R(44 * s), `800 ${R(50 * s)}px ${DISPLAY}`, p.text, 'left', w - m * 2)
+  text(d, `${rows.length} ATLETAS · ${stages.length} ${stages.length === 1 ? 'ESPECIAL' : 'ESPECIAIS'}`, m, top + R(82 * s), `600 ${R(26 * s)}px ${DISPLAY}`, p.muted)
+  let y = top + R(110 * s)
+  const bottom = h - m - R(70 * s)
+  const max = d.story ? 10 : d.land ? 5 : 7
+  const list = ranked.slice(0, max)
+  if (list.length === 0) {
+    text(d, 'Ainda sem tempos nesta categoria.', m, y + R(60 * s), `500 ${R(32 * s)}px ${BODY}`, p.muted)
+    return
+  }
+  const rowH = Math.min(R((d.story ? 120 : 96) * s), (bottom - y) / list.length)
+  const k = Math.min(1.2, rowH / (96 * s))
+  list.forEach((r, i) => {
+    const t = y + i * rowH
+    const hgt = rowH - R(8 * s)
+    ctx.fillStyle = i % 2 === 0 ? d.panel : d.panel2
+    ctx.fillRect(m, t, w - m * 2, hgt)
+    const pw = R(hgt * 0.9)
+    const c = podiumColor(p, i + 1)
+    if (c) {
+      ctx.fillStyle = c
+      ctx.fillRect(m, t, pw, hgt)
+    }
+    text(d, `${i + 1}`, m + pw / 2, t + hgt * 0.7, `800 ${R(hgt * 0.6)}px ${DISPLAY}`, c ? onColor(p) : p.text, 'center')
+    const x = m + pw + R(22 * s)
+    const right = w - m - R(22 * s)
+    ctx.font = `800 ${R(40 * s * k)}px ${DISPLAY}`
+    const timeW = ctx.measureText(fmt(r.totalTime)).width
+    text(d, r.rider.name.toUpperCase(), x, t + hgt * 0.5, `800 ${R(36 * s * k)}px ${DISPLAY}`, p.text, 'left', right - timeW - x - R(24 * s))
+    text(d, [`#${r.rider.num}`, r.rider.team].filter(Boolean).join(' · '), x, t + hgt * 0.82, `500 ${R(22 * s * k)}px ${BODY}`, p.muted, 'left', right - timeW - x - R(24 * s))
+    text(d, fmt(r.totalTime), right, t + hgt * 0.52, `800 ${R(40 * s * k)}px ${DISPLAY}`, p.text, 'right')
+    const gap = r === leader ? 'líder' : r.completedCount === leader.completedCount ? `+${fmt(r.totalGap)}` : `${r.completedCount}/${stages.length} esp.`
+    text(d, gap, right, t + hgt * 0.84, `600 ${R(22 * s * k)}px ${DISPLAY}`, r === leader ? p.brand : p.muted, 'right')
+  })
+  if (ranked.length > max) {
+    y += list.length * rowH
+    text(d, `+ ${ranked.length - max} atletas`, m, Math.min(y + R(30 * s), bottom), `600 ${R(24 * s)}px ${DISPLAY}`, p.muted)
+  }
+}
+
+/** Divulgação dos inscritos: placa e nome, por categoria, em colunas. */
+function drawRoster(d: Draw, state: AppState, category: string, top: number) {
+  const { ctx, s, m, w, h, p } = d
+  const riders = state.riders
+    .filter((r) => category === 'Todas' || r.cat === category)
+    .slice()
+    .sort((a, b) => a.cat.localeCompare(b.cat, 'pt-BR') || Number(a.num) - Number(b.num))
+  text(d, (category === 'Todas' ? 'INSCRITOS' : `INSCRITOS · ${category}`).toUpperCase(), m, top + R(44 * s), `800 ${R(50 * s)}px ${DISPLAY}`, p.text, 'left', w - m * 2)
+  text(d, `${riders.length} ${riders.length === 1 ? 'ATLETA' : 'ATLETAS'}`, m, top + R(82 * s), `600 ${R(26 * s)}px ${DISPLAY}`, p.muted)
+  const y0 = top + R(110 * s)
+  const bottom = h - m - R(70 * s)
+  const cols = d.land ? 3 : riders.length > 24 ? 2 : 1
+  const colW = (w - m * 2 - R(20 * s) * (cols - 1)) / cols
+  // Itens: um título por categoria e uma linha por atleta, em colunas
+  type Item = { kind: 'cat'; label: string } | { kind: 'rider'; num: string; name: string }
+  const items: Item[] = []
+  let last = ''
+  for (const r of riders) {
+    if (category === 'Todas' && r.cat !== last) {
+      items.push({ kind: 'cat', label: r.cat })
+      last = r.cat
+    }
+    items.push({ kind: 'rider', num: r.num, name: r.name })
+  }
+  const perCol = Math.max(1, Math.floor((bottom - y0) / R(46 * s)))
+  const lineH = Math.min(R(56 * s), (bottom - y0) / Math.min(perCol, Math.ceil(items.length / cols)))
+  const fitN = perCol * cols
+  const shown = items.slice(0, fitN)
+  shown.forEach((it, i) => {
+    const col = Math.floor(i / perCol)
+    const x = m + col * (colW + R(20 * s))
+    const t = y0 + (i % perCol) * lineH
+    if (it.kind === 'cat') {
+      text(d, it.label.toUpperCase(), x, t + lineH * 0.72, `800 ${R(26 * s)}px ${DISPLAY}`, p.brand, 'left', colW)
+      return
+    }
+    const plateW = R(70 * s)
+    ctx.fillStyle = p.brand
+    ctx.fillRect(x, t + lineH * 0.14, plateW, lineH * 0.72)
+    text(d, it.num, x + plateW / 2, t + lineH * 0.7, `800 ${R(lineH * 0.5)}px ${DISPLAY}`, p.brandInk, 'center')
+    text(d, it.name, x + plateW + R(14 * s), t + lineH * 0.68, `600 ${R(Math.min(30 * s, lineH * 0.48))}px ${BODY}`, p.text, 'left', colW - plateW - R(14 * s))
+  })
+  if (items.length > fitN) {
+    text(d, `+ ${items.length - fitN} na lista completa`, w - m, bottom + R(30 * s), `600 ${R(22 * s)}px ${DISPLAY}`, p.muted, 'right')
+  }
 }

@@ -5,6 +5,8 @@ import type { AppState, Rider, Run, Stage, SyncStatus } from '../types'
 export type { StartGridItem } from '../types'
 import { DEFAULT_STAGES } from '../types'
 import { clock, fmt } from '../lib/time'
+import { isOut, outLabel, penaltyText, runTime } from '../lib/runs'
+import { median, shortTime } from '../lib/progress'
 import { gridForStage } from '../lib/grid'
 import { athleteKey } from '../lib/athletes'
 import { playCountdownTick, playStartGo, unlockAudio } from '../lib/sound'
@@ -29,15 +31,18 @@ interface Props {
 }
 
 /** O que a lista mostra: a fila ou as descidas da especial em cada situação. */
-type View = 'fila' | 'track' | 'done' | 'dnf'
+type View = 'fila' | 'track' | 'done' | 'out'
 
 const viewEmpty: Record<Exclude<View, 'fila'>, string> = {
   track: 'Ninguém na pista nesta especial.',
   done: 'Ninguém chegou ainda nesta especial.',
-  dnf: 'Nenhum DNF nesta especial.',
+  out: 'Ninguém fora (DNF, DNS ou DSQ) nesta especial.',
 }
 
 const noCategory = (r: Rider) => !r.cat || r.cat === 'Sem Categoria' || r.cat.trim() === ''
+
+/** "14:32" */
+const hhmm = (ms: number) => new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 
 /** "em 2 min" / "atrasado 1 min" em relação ao horário previsto da grade. */
 function ScheduleHint({ epoch }: { epoch: number }) {
@@ -66,6 +71,8 @@ export function Largada({ state, act, sync }: Props) {
   const currentStage: Stage = stages.find((s) => s.id === activeStageId) || stages[0]
 
   const [view, setView] = useState<View>('fila')
+  // Relógio para o ritmo de largada (horários previstos e fim da prova)
+  const now = useNow(5000)
   const [selectedNum, setSelectedNum] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
@@ -208,13 +215,32 @@ export function Largada({ state, act, sync }: Props) {
 
   // Descidas desta especial, por situação (os cartões de contagem e as listas fora da fila)
   const stageRuns = state.runs.filter((run) => (run.stageId || stages[0]?.id) === currentStage.id)
-  const byStatus = (status: Run['status']) => stageRuns.filter((run) => run.status === status)
+  const byStatus = (status: Run['status'] | 'out') =>
+    stageRuns.filter((run) => (status === 'out' ? isOut(run.status) : run.status === status))
   const viewRuns =
     view === 'track'
       ? byStatus('track').sort((a, b) => a.start - b.start)
       : view === 'fila'
         ? []
         : byStatus(view).sort((a, b) => (b.end ?? b.start) - (a.end ?? a.start))
+
+  // Ritmo de largada desta especial: intervalo médio das últimas 10 largadas (ignorando pausas de mais de 30 min)
+  const starts = stageRuns
+    .filter((r) => r.status !== 'dns')
+    .map((r) => r.start)
+    .sort((a, b) => a - b)
+  const gaps = starts
+    .slice(1)
+    .map((t, i) => t - starts[i])
+    .filter((g) => g > 0 && g < 30 * 60_000)
+    .slice(-10)
+  const avgGap = gaps.length > 0 ? gaps.reduce((a, b) => a + b, 0) / gaps.length : null
+  const lastStart = starts[starts.length - 1]
+  const stageRef = median(stageRuns.map((r) => runTime(r) ?? NaN))
+  const endEstimate =
+    avgGap && lastStart ? Math.max(now, lastStart + availableRiders.length * avgGap) + (stageRef ?? 0) : null
+  /** Horário previsto de largada de quem está na fila (quando não há grade). */
+  const predictedStart = (index: number) => (avgGap && lastStart ? Math.max(now, lastStart) + (index + 1) * avgGap : null)
 
   const runRow = (run: Run, showStage: boolean) => {
     const r = state.riders.find((x) => x.num === run.num)
@@ -252,11 +278,18 @@ export function Largada({ state, act, sync }: Props) {
             </IconButton>
           </>
         ) : run.status === 'done' && run.end != null && !showStage ? (
-          <Typography sx={{ ...tabular, fontWeight: 800 }}>{fmt(run.end - run.start)}</Typography>
+          <Typography sx={{ ...tabular, fontWeight: 800 }}>
+            {fmt(runTime(run) ?? 0)}
+            {run.penaltyMs ? (
+              <Box component="span" sx={{ color: 'warning.main', fontSize: '0.75rem', ml: 0.5 }}>
+                {penaltyText(run.penaltyMs)}
+              </Box>
+            ) : null}
+          </Typography>
         ) : (
-          // Mesmas cores da Chegada: DNF vermelho cheio, chegada em verde (o texto continua dizendo qual é)
-          run.status === 'dnf' ? (
-            <Chip label="DNF" size="small" color="error" />
+          // Mesmas cores da Chegada: DNF/DNS/DSQ vermelho cheio, chegada em verde (o texto continua dizendo qual é)
+          isOut(run.status) ? (
+            <Chip label={outLabel(run.status)} size="small" color="error" />
           ) : (
             <Chip label="Chegou" size="small" color="secondary" variant="outlined" />
           )
@@ -291,9 +324,16 @@ export function Largada({ state, act, sync }: Props) {
           { value: 'fila', label: 'Na fila', count: availableRiders.length },
           { value: 'track', label: 'Na pista', count: byStatus('track').length },
           { value: 'done', label: 'Chegaram', count: byStatus('done').length },
-          { value: 'dnf', label: 'DNF', count: byStatus('dnf').length },
+          { value: 'out', label: 'Fora', count: byStatus('out').length },
         ]}
       />
+
+      {avgGap && (
+        <Typography variant="body2" color="text.secondary" sx={{ ...tabular, mt: -0.5 }}>
+          Ritmo: 1 a cada <b>{shortTime(avgGap)}</b> · {Math.round(3_600_000 / avgGap)}/h
+          {availableRiders.length > 0 && endEstimate ? ` · faltam ${availableRiders.length} · fim previsto ~${hhmm(endEstimate)}` : ''}
+        </Typography>
+      )}
 
       {view !== 'fila' ? (
         viewRuns.length === 0 ? (
@@ -384,6 +424,8 @@ export function Largada({ state, act, sync }: Props) {
               {visibleQueue.map((r) => {
                 const isSel = r.num === selected?.num
                 const g = gridMap.get(r.num)
+                // Sem grade: horário previsto pelo ritmo das últimas largadas
+                const guess = !g ? predictedStart(availableRiders.indexOf(r)) : null
                 return (
                   <ButtonBase
                     key={r.num}
@@ -411,11 +453,15 @@ export function Largada({ state, act, sync }: Props) {
                         {noCategory(r) ? 'Sem categoria' : r.cat}
                       </Typography>
                     </Box>
-                    {g && (
+                    {g ? (
                       <Typography sx={{ ...tabular, fontWeight: 700, color: 'text.secondary', fontSize: '0.9rem' }}>
                         {g.scheduledTimeStr}
                       </Typography>
-                    )}
+                    ) : guess ? (
+                      <Typography title="Previsto pelo ritmo de largada" sx={{ ...tabular, fontWeight: 600, color: 'text.secondary', fontSize: '0.85rem' }}>
+                        ~{hhmm(guess)}
+                      </Typography>
+                    ) : null}
                     {isSel && <CheckCircleRoundedIcon sx={{ color: 'secondary.main' }} />}
                   </ButtonBase>
                 )
@@ -483,7 +529,9 @@ export function Largada({ state, act, sync }: Props) {
         slotProps={{
           paper: {
             sx: {
-              bgcolor: count === 'VAI!' ? tint(tokens.start, 0.25) : tokens.bg,
+              // VAI!: tela inteira verde sólida (pode largar); depois volta sozinha para a Largada
+              bgcolor: count === 'VAI!' ? tokens.start : tokens.bg,
+              color: count === 'VAI!' ? tokens.startInk : tokens.text,
               border: 0,
               borderRadius: 0,
               transition: 'background-color 0.2s ease',
@@ -507,8 +555,9 @@ export function Largada({ state, act, sync }: Props) {
           >
             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
-                <Chip label={countdownTarget.stage.name} color="secondary" />
-                <Chip label={countdownTarget.rider.cat} variant="outlined" />
+                {/* No VAI! o fundo fica verde: os chips passam a usar a cor do texto para não sumirem */}
+                <Chip label={countdownTarget.stage.name} color={count === 'VAI!' ? 'default' : 'secondary'} variant={count === 'VAI!' ? 'outlined' : 'filled'} sx={count === 'VAI!' ? { color: 'inherit', borderColor: 'currentColor' } : undefined} />
+                <Chip label={countdownTarget.rider.cat} variant="outlined" sx={{ color: 'inherit', borderColor: 'currentColor' }} />
               </Box>
               <RiderPlate num={countdownTarget.rider.num} size="xl" />
               <Typography variant="h5" sx={{ fontWeight: 800 }}>
@@ -521,6 +570,27 @@ export function Largada({ state, act, sync }: Props) {
               )}
             </Box>
 
+            {/* Semáforo de pórtico: acende um vermelho a cada segundo e todos ficam verdes no VAI */}
+            <Box aria-hidden sx={{ display: 'flex', gap: 1.5, justifyContent: 'center' }}>
+              {[0, 1, 2].map((i) => {
+                const lit = count === 'VAI!' ? 'go' : 3 - (count as number) >= i ? 'red' : 'off'
+                return (
+                  <Box
+                    key={i}
+                    sx={{
+                      width: 'min(14vw, 64px)',
+                      height: 'min(14vw, 64px)',
+                      borderRadius: '50%',
+                      border: `3px solid ${lit === 'go' ? tokens.startInk : tokens.lineStrong}`,
+                      bgcolor: lit === 'go' ? tokens.startInk : lit === 'red' ? tokens.finish : tokens.raised,
+                      boxShadow: lit === 'red' ? `0 0 24px ${tokens.finish}` : 'none',
+                      transition: 'background-color 0.1s',
+                    }}
+                  />
+                )
+              })}
+            </Box>
+
             <Box
               key={String(count)}
               aria-live="assertive"
@@ -529,7 +599,7 @@ export function Largada({ state, act, sync }: Props) {
                 fontSize: count === 'VAI!' ? 'min(32vw, 10rem)' : 'min(52vw, 15rem)',
                 fontWeight: 900,
                 lineHeight: 1,
-                color: count === 'VAI!' ? tokens.start : tokens.brand,
+                color: count === 'VAI!' ? tokens.startInk : tokens.brand,
                 animation: 'pop 0.6s cubic-bezier(0.18, 0.89, 0.32, 1.28)',
               }}
             >

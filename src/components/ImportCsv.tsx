@@ -36,6 +36,21 @@ export function ImportCsv({ open, onClose, state, act }: Props) {
     e.target.value = '' // permite escolher o mesmo arquivo de novo
     if (!file) return
     setFileName(file.name)
+    // Planilha do Excel: a primeira aba vira o mesmo texto que o leitor de CSV já entende
+    if (/\.xlsx$/i.test(file.name)) {
+      try {
+        const { default: readXlsxFile } = await import('read-excel-file/browser')
+        const [first] = await readXlsxFile(file)
+        const cell = (v: unknown) => {
+          const s = v == null ? '' : v instanceof Date ? v.toLocaleDateString('pt-BR') : String(v)
+          return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+        }
+        setParsed(readRidersCsv((first?.data ?? []).map((row) => row.map(cell).join(';')).join('\n')))
+      } catch {
+        setParsed(readRidersCsv(''))
+      }
+      return
+    }
     let text = await file.text()
     // Excel antigo salva em Windows-1252: se aparecer caractere inválido, relê nessa codificação
     if (text.includes('�')) text = new TextDecoder('windows-1252').decode(await file.arrayBuffer())
@@ -68,7 +83,7 @@ export function ImportCsv({ open, onClose, state, act }: Props) {
     <BottomSheet open={open} onClose={close} title="Importar planilha">
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
         <Typography variant="body2" color="text.secondary">
-          Arquivo CSV com as colunas <strong>numero</strong>, <strong>nome</strong> e <strong>categoria</strong> e, se quiser,{' '}
+          Planilha do Excel (.xlsx) ou CSV com as colunas <strong>numero</strong>, <strong>nome</strong> e <strong>categoria</strong> e, se quiser,{' '}
           <strong>equipe</strong>. Pilotos com número já cadastrado são atualizados; categorias que não existem são criadas.
           Quem já correu outro evento é reconhecido pelo nome.
         </Typography>
@@ -76,7 +91,7 @@ export function ImportCsv({ open, onClose, state, act }: Props) {
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button component="label" variant="contained" startIcon={<UploadFileRoundedIcon />} sx={{ flex: 1 }}>
             {fileName ? 'Trocar arquivo' : 'Escolher arquivo'}
-            <input hidden type="file" accept=".csv,text/csv,text/plain" onChange={(e) => void onFile(e)} />
+            <input hidden type="file" accept=".csv,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => void onFile(e)} />
           </Button>
           <Button component="a" href={TEMPLATE_URL} download="modelo-pilotos.csv" variant="outlined" color="inherit" startIcon={<DownloadRoundedIcon />}>
             Modelo
