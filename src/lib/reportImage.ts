@@ -144,7 +144,7 @@ export async function buildReportImage(report: Report): Promise<Blob> {
 
       // Total e diferença
       ctx.textAlign = 'right'
-      const bad = row.total === 'DNF' || row.total === 'DNS'
+      const bad = row.total === 'DNF' || row.total === 'DNS' || row.total === 'DSQ'
       ctx.fillStyle = bad ? tokens.finish : tokens.text
       ctx.font = `800 36px ${DISPLAY}`
       ctx.fillText(row.total, totalX, top + (row.gap ? 40 : 52))

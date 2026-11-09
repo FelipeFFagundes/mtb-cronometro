@@ -1,14 +1,22 @@
 import { useEffect, useState } from 'react'
+import type { Act } from '../App'
 import type { AppState, SyncStatus } from '../types'
 import { buildEnduroRanking, type EnduroRankRow } from '../lib/ranking'
+import { isOut, outDescription, outLabel, penaltyText } from '../lib/runs'
+import { outlierText, stageOutlier } from '../lib/outlier'
+import { RunActions, type RunActionTarget } from './RunActions'
+import { ResultsMatrix, StagePanel } from './ResultsMatrix'
 import { fmt } from '../lib/time'
 import { rankingStats, statItems } from '../lib/report'
 import { radius, tabular, tokens } from '../theme'
 import { ChipSelect, EmptyState, ListCard, PageHeader, RiderPlate, StatStrip, StickyBar } from './ui'
 import { SyncStamp } from './SyncBanner'
 import { ExportReport } from './ExportReport'
-import { ShareAthlete } from './ShareAthlete'
-import { Box, Button, ButtonBase, Chip, Collapse, Typography } from '@mui/material'
+import { ShareAthlete, ShareEvent } from './ShareAthlete'
+import { Box, Button, ButtonBase, Chip, Collapse, IconButton, Tooltip, Typography } from '@mui/material'
+import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
+import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
+import PersonRoundedIcon from '@mui/icons-material/PersonRounded'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import EmojiEventsRoundedIcon from '@mui/icons-material/EmojiEventsRounded'
 import IosShareRoundedIcon from '@mui/icons-material/IosShareRounded'
@@ -20,6 +28,13 @@ interface Props {
   subtitle?: string
   /** Mostra quando os dados foram atualizados pela última vez. */
   sync?: SyncStatus
+  /** Organizador: penalidades, DSQ e DNS pela matriz e pelo ⋯ de cada especial. */
+  act?: Act
+  canEdit?: boolean
+  /** Equipe da prova (fiscal ou organizador): painel e alertas de tempo fora da curva. */
+  staff?: boolean
+  /** Abre a página pública do atleta. */
+  onOpenAthlete?: (num: string) => void
 }
 
 const podium = [tokens.gold, tokens.silver, tokens.bronze]
@@ -49,15 +64,20 @@ function Position({ pos }: { pos: number }) {
 }
 
 /** Resultado principal da linha: tempo total (geral) ou tempo da especial. */
-function MainResult({ row, stageId, isFirst }: { row: EnduroRankRow; stageId: string; isFirst: boolean }) {
+function MainResult({ row, stageId, isFirst, leader }: { row: EnduroRankRow; stageId: string; isFirst: boolean; leader?: EnduroRankRow }) {
   if (stageId === 'all') {
-    if (row.hasDnf) return <Chip label="DNF" size="small" color="error" />
+    if (row.outStatus) return <Chip label={outLabel(row.outStatus)} size="small" color="error" title={outDescription[row.outStatus]} />
     if (row.completedCount === 0) return <Typography variant="body2" color="text.secondary">—</Typography>
     return (
       <>
         <Typography sx={{ ...tabular, fontWeight: 900, fontSize: '1.05rem', lineHeight: 1.2 }}>{fmt(row.totalTime)}</Typography>
         <Typography sx={{ ...tabular, fontSize: '0.75rem', fontWeight: 700, color: isFirst ? 'primary.main' : 'text.secondary' }}>
-          {isFirst ? 'Líder' : `+${fmt(row.totalGap)}`}
+          {isFirst
+            ? 'Líder'
+            : leader && row.completedCount !== leader.completedCount
+              ? // Menos especiais concluídas: a diferença de tempo não compara
+                `${row.completedCount}/${row.totalStagesCount} esp.`
+              : `+${fmt(row.totalGap)}`}
         </Typography>
       </>
     )
@@ -73,12 +93,12 @@ function MainResult({ row, stageId, isFirst }: { row: EnduroRankRow; stageId: st
       </>
     )
   }
-  if (perf?.status === 'dnf') return <Chip label="DNF" size="small" color="error" />
+  if (isOut(perf?.status)) return <Chip label={outLabel(perf.status as 'dnf')} size="small" color="error" />
   if (perf?.status === 'track') return <Chip label="Na pista" size="small" color="warning" variant="outlined" />
   return <Typography variant="body2" color="text.secondary">—</Typography>
 }
 
-export function EnduroLeaderboard({ state, title = 'Classificação', subtitle, sync }: Props) {
+export function EnduroLeaderboard({ state, title = 'Classificação', subtitle, sync, act, canEdit = false, staff = false, onOpenAthlete }: Props) {
   // Baixa o gerador de PDF em segundo plano: o "Exportar" funciona mesmo se o sinal cair no fim da prova
   useEffect(() => {
     const conn = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection
@@ -92,10 +112,18 @@ export function EnduroLeaderboard({ state, title = 'Classificação', subtitle, 
   const [expanded, setExpanded] = useState<string | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [shareNum, setShareNum] = useState<string | null>(null)
+  const [standingsImage, setStandingsImage] = useState(false)
+  const [mode, setMode] = useState<'list' | 'matrix'>('list')
+  const [fix, setFix] = useState<RunActionTarget | null>(null)
 
   const categories = state.categories || []
   const { rows, stages } = buildEnduroRanking(state, cat, selectedStageId)
   const isOverall = selectedStageId === 'all'
+
+  // Tempos para conferir (só para a equipe da prova)
+  const outliers = staff
+    ? rows.flatMap((r) => stages.filter((st) => stageOutlier(state, r.rider.num, st.id, r.stagePerformances[st.id]?.time ?? null)))
+    : []
 
   // Só leva medalha/posição quem tem resultado válido
   const hasResult = (row: EnduroRankRow) =>
@@ -118,9 +146,14 @@ export function EnduroLeaderboard({ state, title = 'Classificação', subtitle, 
           )
         }
         right={
-          <Button variant="outlined" color="inherit" startIcon={<IosShareRoundedIcon />} onClick={() => setExportOpen(true)} sx={{ flexShrink: 0 }}>
-            Exportar
-          </Button>
+          <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+            <IconButton aria-label="Imagem da classificação para redes sociais" onClick={() => setStandingsImage(true)} sx={{ border: `1px solid ${tokens.lineStrong}` }}>
+              <ImageRoundedIcon />
+            </IconButton>
+            <Button variant="outlined" color="inherit" startIcon={<IosShareRoundedIcon />} onClick={() => setExportOpen(true)}>
+              Exportar
+            </Button>
+          </Box>
         }
       />
 
@@ -146,8 +179,33 @@ export function EnduroLeaderboard({ state, title = 'Classificação', subtitle, 
 
       {rows.length > 0 && <StatStrip items={statItems(rankingStats(rows, selectedStageId))} />}
 
+      {staff && rows.length > 0 && <StagePanel rows={rows} stages={stages} />}
+
+      {staff && outliers.length > 0 && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'warning.main' }}>
+          <WarningAmberRoundedIcon fontSize="small" />
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+            {outliers.length === 1 ? '1 tempo fora da curva' : `${outliers.length} tempos fora da curva`}: confira os marcados com ⚠
+          </Typography>
+        </Box>
+      )}
+
+      {stages.length > 0 && rows.length > 0 && (
+        <ChipSelect
+          ariaLabel="Forma de ver"
+          value={mode}
+          onChange={(v) => setMode(v as 'list' | 'matrix')}
+          options={[
+            { value: 'list', label: 'Lista' },
+            { value: 'matrix', label: canEdit ? 'Matriz (corrigir)' : 'Matriz' },
+          ]}
+        />
+      )}
+
       {rows.length === 0 ? (
         <EmptyState icon={<EmojiEventsRoundedIcon />} title="Sem atletas nesta categoria" />
+      ) : mode === 'matrix' ? (
+        <ResultsMatrix state={state} rows={rows} stages={stages} staff={staff} onCell={canEdit ? (num, stageId, perf) => setFix({ num, stageId, perf }) : undefined} />
       ) : (
         <ListCard>
           {rows.map((row, i) => {
@@ -185,7 +243,7 @@ export function EnduroLeaderboard({ state, title = 'Classificação', subtitle, 
                     </Typography>
                   </Box>
                   <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
-                    <MainResult row={row} stageId={selectedStageId} isFirst={i === 0} />
+                    <MainResult row={row} stageId={selectedStageId} isFirst={i === 0} leader={rows[0]} />
                   </Box>
                   <ExpandMoreRoundedIcon
                     sx={{ color: 'text.secondary', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
@@ -196,6 +254,7 @@ export function EnduroLeaderboard({ state, title = 'Classificação', subtitle, 
                   <Box sx={{ bgcolor: tokens.bg, px: 2, py: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
                     {stages.map((st) => {
                       const perf = row.stagePerformances[st.id]
+                      const outlier = staff && perf?.status === 'done' ? stageOutlier(state, row.rider.num, st.id, perf.time) : null
                       return (
                         <Box key={st.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minHeight: 32 }}>
                           <Typography variant="body2" noWrap sx={{ flex: 1, minWidth: 0, fontWeight: st.id === selectedStageId ? 800 : 500 }}>
@@ -206,29 +265,39 @@ export function EnduroLeaderboard({ state, title = 'Classificação', subtitle, 
                               <Typography variant="caption" sx={{ ...tabular, color: podium[(perf.stageRank ?? 0) - 1] ?? 'text.secondary', fontWeight: 800, width: 28, textAlign: 'right' }}>
                                 {perf.stageRank}º
                               </Typography>
+                              {outlier && (
+                                <Tooltip title={outlierText(outlier)}>
+                                  <WarningAmberRoundedIcon sx={{ fontSize: 16, color: 'warning.main' }} aria-label={outlierText(outlier)} />
+                                </Tooltip>
+                              )}
                               <Typography sx={{ ...tabular, fontWeight: 800, width: 76, textAlign: 'right' }}>{fmt(perf.time)}</Typography>
-                              <Typography variant="caption" sx={{ ...tabular, color: 'text.secondary', width: 72, textAlign: 'right' }}>
-                                {perf.stageRank === 1 || perf.stageGap == null ? '' : `+${fmt(perf.stageGap)}`}
+                              <Typography variant="caption" sx={{ ...tabular, color: perf.penaltyMs ? 'warning.main' : 'text.secondary', width: 72, textAlign: 'right' }}>
+                                {perf.penaltyMs ? penaltyText(perf.penaltyMs) : perf.stageRank === 1 || perf.stageGap == null ? '' : `+${fmt(perf.stageGap)}`}
                               </Typography>
                             </>
                           ) : (
-                            <Typography variant="caption" color={perf?.status === 'dnf' ? 'error.main' : 'text.secondary'} sx={{ fontWeight: 700 }}>
-                              {perf?.status === 'dnf' ? 'DNF' : perf?.status === 'track' ? 'Na pista' : 'Não largou'}
+                            <Typography variant="caption" color={isOut(perf?.status) ? 'error.main' : 'text.secondary'} sx={{ fontWeight: 700 }} title={isOut(perf?.status) ? outDescription[perf.status as 'dnf'] : undefined}>
+                              {isOut(perf?.status) ? outLabel(perf.status as 'dnf') : perf?.status === 'track' ? 'Na pista' : 'Não largou'}
                             </Typography>
+                          )}
+                          {canEdit && perf && (
+                            <IconButton size="small" aria-label={`Corrigir #${row.rider.num} na ${st.name}`} onClick={() => setFix({ num: row.rider.num, stageId: st.id, perf })} sx={{ color: 'text.secondary', minWidth: 32, minHeight: 32 }}>
+                              <MoreHorizRoundedIcon fontSize="small" />
+                            </IconButton>
                           )}
                         </Box>
                       )
                     })}
-                    <Button
-                      variant="outlined"
-                      color="inherit"
-                      size="small"
-                      startIcon={<ImageRoundedIcon />}
-                      onClick={() => setShareNum(row.rider.num)}
-                      sx={{ alignSelf: 'flex-start', mt: 0.5 }}
-                    >
-                      Imagem do atleta
-                    </Button>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 0.5 }}>
+                      <Button variant="outlined" color="inherit" size="small" startIcon={<ImageRoundedIcon />} onClick={() => setShareNum(row.rider.num)}>
+                        Imagem do atleta
+                      </Button>
+                      {onOpenAthlete && (
+                        <Button variant="outlined" color="inherit" size="small" startIcon={<PersonRoundedIcon />} onClick={() => onOpenAthlete(row.rider.num)}>
+                          Página do atleta
+                        </Button>
+                      )}
+                    </Box>
                   </Box>
                 </Collapse>
               </Box>
@@ -242,6 +311,8 @@ export function EnduroLeaderboard({ state, title = 'Classificação', subtitle, 
       </Typography>
 
       <ShareAthlete state={state} num={shareNum} onClose={() => setShareNum(null)} />
+      {standingsImage && <ShareEvent state={state} kind="standings" open onClose={() => setStandingsImage(false)} initialCategory={cat} />}
+      {act && <RunActions target={fix} onClose={() => setFix(null)} state={state} act={act} />}
 
       <ExportReport
         open={exportOpen}

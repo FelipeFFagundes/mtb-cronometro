@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:local": "vite --mode offline --port 5181 --host",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
@@ -26,7 +27,9 @@
     "jspdf-autotable": "^5.0.9",
     "qrcode-generator": "^2.0.4",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "read-excel-file": "9.3.12",
+    "write-excel-file": "4.1.1"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

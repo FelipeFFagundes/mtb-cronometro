@@ -1,7 +1,10 @@
-import type { Access, Api, AppState, AthleteEntry, AthleteSummary, EventInfo, Rider, Run, Stage, StartGridItem } from '../types'
+import type { Access, Api, AppState, AthleteEntry, AthleteSummary, EventInfo, LogEntry, Rider, Run, Stage, StartGridItem, TvImage, TvPanel, TvScreen } from '../types'
 import { athleteKey } from '../lib/athletes'
+import { getOperator } from '../lib/operator'
+import { shrinkImage } from '../lib/images'
 import { DEFAULT_CATEGORIES, DEFAULT_STAGES } from '../types'
 import { DEMO_RIDERS, DEMO_STAGES } from './demo'
+import { uuid } from '../lib/uuid'
 
 const KEY = 'mtb-cronometro-v3'
 /** Lista de eventos e evento em uso no aparelho. Os dados de cada evento ficam em KEY (o primeiro, "local") ou KEY:id. */
@@ -47,6 +50,21 @@ function currentEventId(): string {
 }
 
 const stateKey = (id: string) => (id === 'local' ? KEY : `${KEY}:${id}`)
+/** Histórico e imagens do telão de cada evento ficam em chaves próprias (crescem mais que o resto). */
+const logKey = (id: string) => `mtb-log-v1:${id}`
+const tvImagesKey = (id: string) => `mtb-tvimg-v1:${id}`
+/** TVs pareadas: no modo local, só entre abas deste navegador. */
+const tvKey = (code: string) => `mtb-tv-v1:${code}`
+const DEFAULT_PANELS: TvPanel[] = ['track', 'progress', 'standings']
+
+function readJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw ? (JSON.parse(raw) as T) : fallback
+  } catch {
+    return fallback
+  }
+}
 
 /** Código público de 5 caracteres, sem os ambíguos (0/O, 1/I). */
 function randomCode(): string {
@@ -91,6 +109,8 @@ function read(): AppState {
         categories,
         stages,
         grid: withRiderInfo(grid, riders),
+        categoryColors: parsed.categoryColors ?? {},
+        tvImageSeconds: parsed.tvImageSeconds ?? 10,
       }
     }
   } catch {
@@ -112,6 +132,14 @@ export function createLocalApi(): Api {
     localStorage.setItem(stateKey(currentEventId()), JSON.stringify(data))
     localStorage.removeItem(LEGACY_GRID_KEY) // já migrada para dentro do estado
     emit()
+  }
+
+  /** Acrescenta uma linha ao histórico do evento em uso (no máximo as 2000 mais recentes). */
+  function log(entry: Omit<LogEntry, 'at' | 'actor'> & { actor?: string }) {
+    const key = logKey(currentEventId())
+    const list = readJson<LogEntry[]>(key, [])
+    list.unshift({ at: Date.now(), ...entry, actor: entry.actor || getOperator() || 'organizador' })
+    localStorage.setItem(key, JSON.stringify(list.slice(0, 2000)))
   }
 
   const openRun = (s: AppState, num: string, stageId?: string) =>
@@ -190,7 +218,7 @@ export function createLocalApi(): Api {
       if (!input.name.trim()) throw new Error('Informe o nome do evento')
       const list = localEvents()
       const event: EventInfo = {
-        id: crypto.randomUUID(),
+        id: uuid(),
         name: input.name.trim(),
         startsOn: input.startsOn,
         location: input.location?.trim() || undefined,
@@ -432,16 +460,22 @@ export function createLocalApi(): Api {
         throw new Error(`${rider.name} já possui descida registrada na ${stageName}`)
       }
 
+      if (s.runs.some((r) => r.num === num && r.stageId === targetStageId && r.status === 'dns')) {
+        throw new Error(`${rider.name} está como DNS na ${stageName}`)
+      }
+      const by = getOperator() || undefined
       const run: Run = {
-        id: crypto.randomUUID(),
+        id: uuid(),
         num,
         stageId: targetStageId,
         start: Math.min(atEpochMs ?? Date.now(), Date.now()),
         end: null,
         status: 'track',
+        startedBy: by,
       }
       s.runs.push(run)
       write(s)
+      log({ action: 'Largada', num, stageId: targetStageId, actor: by })
       return run
     },
 
@@ -451,9 +485,11 @@ export function createLocalApi(): Api {
       if (!rider) throw new Error(`Piloto #${num} não cadastrado`)
       const run = openRun(s, num, stageId)
       if (!run) throw new Error(`${rider.name} não está na pista`)
-      run.end = atEpochMs ?? Date.now()
+      run.end = Math.max(atEpochMs ?? Date.now(), run.start)
       run.status = 'done'
+      run.finishedBy = getOperator() || undefined
       write(s)
+      log({ action: 'Chegada', num, stageId: run.stageId, actor: run.finishedBy })
       return run
     },
 
@@ -464,11 +500,129 @@ export function createLocalApi(): Api {
       run.status = 'dnf'
       if (!run.end) run.end = Date.now()
       write(s)
+      log({ action: 'DNF', num: run.num, stageId: run.stageId })
     },
 
     async undoRun(id) {
       const s = read()
+      const run = s.runs.find((r) => r.id === id)
       s.runs = s.runs.filter((r) => r.id !== id)
+      write(s)
+      if (run) log({ action: 'Descida apagada', num: run.num, stageId: run.stageId, detail: run.status })
+    },
+
+    async setRunStatus(id, status) {
+      const s = read()
+      const run = s.runs.find((r) => r.id === id)
+      if (!run) return
+      const before = run.status
+      if (status === 'done') run.status = run.end != null ? 'done' : 'track'
+      else {
+        run.status = status
+        run.end = run.end ?? Date.now()
+      }
+      write(s)
+      const action = status === 'done' ? (before === 'dsq' || before === 'dnf' ? 'Volta a valer' : 'Chegada') : status.toUpperCase()
+      log({ action, num: run.num, stageId: run.stageId, detail: `${before} → ${run.status}` })
+    },
+
+    async markDns(num, stageId) {
+      const s = read()
+      if (s.runs.some((r) => r.num === num && r.stageId === stageId)) throw new Error('O piloto já tem descida nesta especial')
+      const now = Date.now()
+      s.runs.push({ id: uuid(), num, stageId, start: now, end: now, status: 'dns' })
+      write(s)
+      log({ action: 'DNS', num, stageId })
+    },
+
+    async setPenalty(id, ms) {
+      const s = read()
+      const run = s.runs.find((r) => r.id === id)
+      if (!run) return
+      run.penaltyMs = Math.max(0, ms)
+      write(s)
+      log({ action: 'Penalidade', num: run.num, stageId: run.stageId, detail: `+${Math.round(run.penaltyMs / 1000)}s` })
+    },
+
+    async updateStageInfo(id, info) {
+      const s = read()
+      const stage = s.stages.find((st) => st.id === id)
+      if (!stage) throw new Error('Especial não encontrada')
+      if (info.km !== undefined) stage.km = info.km && info.km > 0 ? info.km : undefined
+      if (info.color !== undefined) stage.color = info.color || undefined
+      write(s)
+    },
+
+    async setCategoryColor(name, color) {
+      const s = read()
+      const colors = { ...(s.categoryColors ?? {}) }
+      if (color) colors[name] = color
+      else delete colors[name]
+      s.categoryColors = colors
+      write(s)
+    },
+
+    async getLog() {
+      return readJson<LogEntry[]>(logKey(currentEventId()), [])
+    },
+
+    async listOrganizers() {
+      throw new Error('A lista de organizadores precisa do Supabase configurado')
+    },
+    async addOrganizer() {
+      throw new Error('A lista de organizadores precisa do Supabase configurado')
+    },
+    async removeOrganizer() {
+      throw new Error('A lista de organizadores precisa do Supabase configurado')
+    },
+
+    async tvRegister(code) {
+      const tv = readJson<TvScreen | null>(tvKey(code), null) ?? { code, eventId: null, panels: DEFAULT_PANELS, scale: 100 }
+      localStorage.setItem(tvKey(code), JSON.stringify(tv))
+      return tv
+    },
+
+    watchTv(code, onChange) {
+      const onStorage = (e: StorageEvent) => {
+        if (e.key === tvKey(code)) onChange(readJson<TvScreen>(tvKey(code), { code, eventId: null, panels: DEFAULT_PANELS, scale: 100 }))
+      }
+      window.addEventListener('storage', onStorage)
+      return () => window.removeEventListener('storage', onStorage)
+    },
+
+    async tvLink(code, eventId, panels, scale) {
+      if (!localStorage.getItem(tvKey(code))) throw new Error(`Nenhuma TV com o código ${code}. Abra o modo TV na TV primeiro (neste navegador).`)
+      const tv: TvScreen = { code, eventId, panels, scale: Math.min(150, Math.max(50, scale)) }
+      localStorage.setItem(tvKey(code), JSON.stringify(tv))
+    },
+
+    async listTvImages() {
+      return readJson<TvImage[]>(tvImagesKey(currentEventId()), [])
+    },
+
+    async addTvImage(file) {
+      const key = tvImagesKey(currentEventId())
+      const list = readJson<TvImage[]>(key, [])
+      // Reduzida (lado maior 1280 px) para caber no armazenamento do navegador
+      const url = await shrinkImage(file, 1280, 0.8)
+      list.push({ id: uuid(), url })
+      try {
+        localStorage.setItem(key, JSON.stringify(list))
+      } catch {
+        throw new Error('Sem espaço no navegador para mais imagens. Remova alguma antes.')
+      }
+      emit()
+    },
+
+    async removeTvImage(id) {
+      const key = tvImagesKey(currentEventId())
+      localStorage.setItem(key, JSON.stringify(readJson<TvImage[]>(key, []).filter((i) => i.id !== id)))
+      emit()
+    },
+
+    async setTvImageSeconds(seconds) {
+      const s = read()
+      s.tvImageSeconds = Math.min(60, Math.max(3, Math.round(seconds)))
       write(s)
     },
 
@@ -482,10 +636,14 @@ export function createLocalApi(): Api {
       })
     },
 
-    async clearRuns() {
+    async clearRuns(filter) {
       const s = read()
-      s.runs = []
+      const catOf = (num: string) => s.riders.find((r) => r.num === num)?.cat
+      const hit = (r: Run) => (!filter?.stageId || r.stageId === filter.stageId) && (!filter?.category || catOf(r.num) === filter.category)
+      const n = s.runs.filter(hit).length
+      s.runs = s.runs.filter((r) => !hit(r))
       write(s)
+      log({ action: 'Descidas apagadas', detail: `${n} ${filter?.stageId || filter?.category ? 'com filtro' : 'no evento'}` })
     },
 
     async reset() {

@@ -126,7 +126,7 @@ export async function buildReportPdf(report: Report): Promise<Blob> {
           data.cell.styles.fillColor = PODIUM[row.pos - 1]
         }
         const text = String(data.cell.raw ?? '')
-        if (text === 'DNF' || text === 'DNS') data.cell.styles.textColor = [220, 38, 38]
+        if (text === 'DNF' || text === 'DNS' || text === 'DSQ') data.cell.styles.textColor = [220, 38, 38]
         if (data.column.index === head.length - 1) data.cell.styles.textColor = GRAY
       },
       didDrawCell: (data) => {
